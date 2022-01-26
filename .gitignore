@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# my other files
+input_examples/
+ladunki_granica_qm_mm.odt
+ladunki_granica_qm_mm.pdf
+# my files
