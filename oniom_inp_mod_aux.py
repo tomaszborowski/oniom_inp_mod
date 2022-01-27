@@ -1,5 +1,5 @@
 """"
-author: Jakub Baran, Paulina Miśkowiec
+authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 """
 import math
 import re
@@ -158,12 +158,61 @@ class link_atom(atom):
 
 # Search in file
 
-def find_in_file() -> None:
+# def find_in_file() -> None:
+#     """
+#     create a dictionary with pointers to specific sections in the input file in order to have a easy access to them
+#     :return:
+#     Nothing because offset_dict is global and used in other functions
+#     """
+#     empty_line = 0  # count empty line
+#     file.seek(0, 2)  # jump to the end of file
+#     EOF = file.tell()  # set end of file (EOF) location
+#     file.seek(0)  # jump to the beginning of the file
+#     is_redundant_exists = False
+#     while file.tell() != EOF:
+#         previousLine = file.tell()
+#         line = file.readline()
+
+#         if empty_line == 1:
+#             offsets["comment"] = previousLine
+#             empty_line += 1  # avoid going again to this if statement
+#         elif empty_line == 3:
+#             offsets["chargeAndSpin"] = previousLine
+#             offsets["atomInfo"] = file.tell()
+#             empty_line += 1
+#         elif empty_line == 5:
+#             offsets["connectList"] = previousLine
+#             empty_line += 1
+#         elif empty_line == 7:
+#             if re.match(r'^[0-9]+', line):
+#                 offsets["redundant"] = previousLine
+#                 is_redundant_exists = True
+#             else:
+#                 offsets["parm"] = previousLine
+#             empty_line += 1
+#         elif empty_line == 9 and is_redundant_exists:
+#             offsets["parm"] = previousLine
+#             empty_line += 1
+
+#         if line == '\n':
+#             empty_line += 1
+
+
+def find_in_file(file):
     """
     create a dictionary with pointers to specific sections in the input file in order to have a easy access to them
-    :return:
-    Nothing because offset_dict is global and used in other functions
+    :input: file - a file object
+    :returns: offsets - a dictionary
     """
+    offsets = {"chargeAndSpin": -1,
+           "atomInfo": -1,
+           "comment": -1,
+           "connectList": -1,
+           "header": 0,
+           "parm": -1,
+           "redundant": -1
+           }   
+    
     empty_line = 0  # count empty line
     file.seek(0, 2)  # jump to the end of file
     EOF = file.tell()  # set end of file (EOF) location
@@ -197,16 +246,19 @@ def find_in_file() -> None:
         if line == '\n':
             empty_line += 1
 
+    file.seek(0)
+    return offsets
+
 
 # Read
 
-def read_Chk():
+def read_Chk(header):
     """
     find Chk file name and Chk extension in input file
+    : header - a string with header from ONIOM input
     :return:
     list where [0] is file name and [1] is file extension
     """
-    header = read_header()
 
     try:
         find_chk = re.search(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', header)
@@ -219,13 +271,87 @@ def read_Chk():
     return chk_core, chk_extension
 
 
-def read_header() -> str:
+# def read_Chk():
+#     """
+#     find Chk file name and Chk extension in input file
+#     :return:
+#     list where [0] is file name and [1] is file extension
+#     """
+#     header = read_header()
+
+#     try:
+#         find_chk = re.search(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', header)
+#         chk_core = find_chk.group(1)
+#         chk_extension = find_chk.group(2)
+#     except AttributeError:
+#         chk_core = ''
+#         chk_extension = '\n'  # if not found always go to next line
+
+#     return chk_core, chk_extension
+
+
+# def read_header() -> str:
+#     """
+#     save a file header section to string variable
+#     :return:
+#     str which contains the content of the header
+#     """
+#     file.seek(offsets["header"])
+#     header_line = ""
+#     while True:
+#         line = file.readline()
+#         if line == '\n':
+#             break
+
+#         header_line += line
+
+#     return header_line
+
+# def read_header(file, offset) -> str:
+#     """
+#     save a file header section to string variable
+#     :input: file - file object
+#     :returns:
+#     str which contains the content of the header
+#     """
+#     header_line = ""
+#     while True:
+#         line = file.readline()
+#         if line == '\n':
+#             break
+
+#         header_line += line
+
+#     return header_line
+
+
+# def read_comment() -> str:
+#     """
+#     save a file comment section to string variable
+#     :return:
+#     str which contains the content of the comment
+#     """
+#     file.seek(offsets["comment"])
+#     comment_line = ""
+
+#     while True:
+#         line = file.readline()
+#         if line == '\n':
+#             break
+
+#         comment_line += line
+
+#     return comment_line
+
+def read_from_to_empty_line(file, offset) -> str:
     """
-    save a file header section to string variable
-    :return:
+    save a file fragment between the place specified by offset to an empty line
+    to a string, which is returned
+    :input: file - file object
+    :returns:
     str which contains the content of the header
     """
-    file.seek(offsets["header"])
+    file.seek(offset)
     header_line = ""
     while True:
         line = file.readline()
@@ -237,47 +363,67 @@ def read_header() -> str:
     return header_line
 
 
-def read_comment() -> str:
+# def read_charge_spin() -> dict:
+#     """
+#     create a dictionary with information about charge and spin
+#     :return:
+#     dict which contains the content of the charge and spin
+#     """
+#     file.seek(offsets["chargeAndSpin"])
+#     chargeAndSpin_list = file.readline().split()
+#     chargeAndSpin_dict = {"ChrgRealLow": 0,
+#                           "SpinRealLow": 0,
+#                           "ChrgModelHigh": 0,
+#                           "SpinModelHigh": 0,
+#                           "ChrgModelLow": 0,
+#                           "SpinModelLow": 0
+#                           }
+#     for count, key in enumerate(chargeAndSpin_dict):
+#         chargeAndSpin_dict[key] = int(chargeAndSpin_list[count])
+
+#     return chargeAndSpin_dict
+
+def read_charge_spin(file, offset) -> dict:
     """
-    save a file comment section to string variable
+    read from file information about charge and spin
     :return:
-    str which contains the content of the comment
+    dict which contains the content of the charge and spin section of oniom input file
     """
-    file.seek(offsets["comment"])
-    comment_line = ""
+#    2-layers ONIOM
+#    chrgreal-low  spinreal-low  chrgmodel-high  spinmodel-high  chrgmodel-low  spinmodel-low
 
-    while True:
-        line = file.readline()
-        if line == '\n':
-            break
+#    3-layer ONIOM
+#    cRealL  sRealL   cIntM   sIntM   cIntL  sIntL   cModH  sModH   cModM  sModM   cModL   sModL
+    two_layer_seq = ["ChrgRealLow", "SpinRealLow", "ChrgModelHigh", "SpinModelHigh",
+                     "ChrgModelLow", "SpinModelLow"]
+    
+    three_layer_seq = ["ChrgRealLow", "SpinRealLow", "ChrgIntMed", "SpinIntMed",
+                       "ChrgIntLow", "SpinIntLow", "ChrgModelHigh", "SpinModelHigh",
+                       "ChrgModelMed", "SpinModelMed", "ChrgModelLow", "SpinModelLow"]
 
-        comment_line += line
-
-    return comment_line
-
-
-def read_charge_spin() -> dict:
-    """
-    create a dictionary with information about charge and spin
-    :return:
-    dict which contains the content of the charge and spin
-    """
-    file.seek(offsets["chargeAndSpin"])
+    file.seek(offset)
+    chargeAndSpin_dict = {"ChrgRealLow": 0, "SpinRealLow": 0,
+                          "ChrgModelHigh": 0, "SpinModelHigh": 0,
+                          "ChrgModelMed": 0, "SpinModelMed": 0,
+                          "ChrgModelLow": 0, "SpinModelLow": 0,
+                          "ChrgIntMed": 0, "SpinIntMed": 0,
+                          "ChrgIntLow": 0, "SpinIntLow": 0,}
     chargeAndSpin_list = file.readline().split()
-    chargeAndSpin_dict = {"ChrgRealLow": 0,
-                          "SpinRealLow": 0,
-                          "ChrgModelHigh": 0,
-                          "SpinModelHigh": 0,
-                          "ChrgModelLow": 0,
-                          "SpinModelLow": 0
-                          }
-    for count, key in enumerate(chargeAndSpin_dict):
-        chargeAndSpin_dict[key] = int(chargeAndSpin_list[count])
+    n_items = len(chargeAndSpin_list)
+    if n_items == 6:
+        for key, value in zip(two_layer_seq, chargeAndSpin_list):
+            chargeAndSpin_dict[key] = int(value)
+    elif n_items == 12:
+        for key, value in zip(three_layer_seq, chargeAndSpin_list):
+            chargeAndSpin_dict[key] = int(value)
 
     return chargeAndSpin_dict
 
 
-def read_atom_inf() -> tuple:
+
+
+def read_atom_inf(file, offset) -> tuple:
+#def read_atom_inf() -> tuple:
     """
     create two list\n
     *atomObject_list:\n
@@ -297,7 +443,8 @@ def read_atom_inf() -> tuple:
     :return:
     list where [0] is atom object and [1] is atom link object
     """
-    file.seek(offsets["atomInfo"])
+#    file.seek(offsets["atomInfo"])
+    file.seek(offset)
     atomObject_list = []
     linkObject_list = []
     oniom_layer_H_and_LAH_index_list = []
@@ -348,13 +495,15 @@ def read_atom_inf() -> tuple:
     # [1] is linkObject_list [2] is oniom_layer_H_and_LAH_index_list when return
 
 
-def read_connect_list() -> dict:
+#def read_connect_list() -> dict:
+def read_connect_list(file, offset) -> dict:    
     """
     create a dictionary where key is atom and value is a list of atoms(ints) connected to it
     :return:
     dict = { atom(int 1-based) : [connected_atom_1, connected_atom_2, ...],}
     """
-    file.seek(offsets["connectList"])
+#    file.seek(offsets["connectList"])
+    file.seek(offset)
     connect_dict = {}
 
     while True:
@@ -376,42 +525,42 @@ def read_connect_list() -> dict:
     return connect_dict
 
 
-def read_parm() -> str:
-    """
-    save a file parm section to string variable
-    :return:
-    str which contains the content of the parm
-    """
-    file.seek(offsets["parm"])
-    parm_line = ""
+# def read_parm() -> str:
+#     """
+#     save a file parm section to string variable
+#     :return:
+#     str which contains the content of the parm
+#     """
+#     file.seek(offsets["parm"])
+#     parm_line = ""
 
-    while True:
-        line = file.readline()
-        if line == '\n':
-            break
+#     while True:
+#         line = file.readline()
+#         if line == '\n':
+#             break
 
-        parm_line += line
+#         parm_line += line
 
-    return parm_line
+#     return parm_line
 
 
-def read_redundant() -> str:
-    """
-    save a file redundant section to string variable
-    :return:
-    str which contains the content of the redundant
-    """
-    file.seek(offsets["redundant"])
-    redundant_line = ""
+# def read_redundant() -> str:
+#     """
+#     save a file redundant section to string variable
+#     :return:
+#     str which contains the content of the redundant
+#     """
+#     file.seek(offsets["redundant"])
+#     redundant_line = ""
 
-    while True:
-        line = file.readline()
-        if line == '\n':
-            break
+#     while True:
+#         line = file.readline()
+#         if line == '\n':
+#             break
 
-        redundant_line += line
+#         redundant_line += line
 
-    return redundant_line
+#     return redundant_line
 
 
 # Auxiliary function
@@ -485,18 +634,39 @@ def write_comment(comment) -> None:
     file_output.write('\n{}'.format(comment))
 
 
-def write_charge_spin(charge_spin) -> None:
+# def write_charge_spin(charge_spin) -> None:
+#     """
+#     print into a file the content of the charge_spin
+#     :param charge_spin: variable which contains charge_spin information
+#     :return:
+#     """
+#     file_output.write('\n')
+#     for key in charge_spin:
+#         file_output.write(str(charge_spin[key]) + "  ")
+#     file_output.write('\n')
+
+def write_charge_spin(charge_spin, nlayers):
     """
     print into a file the content of the charge_spin
-    :param charge_spin: variable which contains charge_spin information
-    :return:
+    :param charge_spin: dictionary with charge and spin information
+    nlayers - intiger, number of layers (2 or 3)
+    :return: line - string
     """
-    file_output.write('\n')
-    for key in charge_spin:
-        file_output.write(str(charge_spin[key]) + "  ")
-    file_output.write('\n')
-
-
+    two_layer_seq = ["ChrgRealLow", "SpinRealLow", "ChrgModelHigh", "SpinModelHigh",
+                     "ChrgModelLow", "SpinModelLow"]
+    
+    three_layer_seq = ["ChrgRealLow", "SpinRealLow", "ChrgIntMed", "SpinIntMed",
+                       "ChrgIntLow", "SpinIntLow", "ChrgModelHigh", "SpinModelHigh",
+                       "ChrgModelMed", "SpinModelMed", "ChrgModelLow", "SpinModelLow"]
+    line = ''
+    if nlayers == 2:
+        for key in two_layer_seq:
+            line = line + str(charge_spin[key]) + "  "
+    elif nlayers == 3:
+        for key in three_layer_seq:
+            line = line + str(charge_spin[key]) + "  "        
+    return line
+                              
 def charge_change(atom_inf: tuple, type: str) -> list:
     """
     change atom charge and create a list of modificated charges
@@ -707,6 +877,98 @@ def charge_summary(atom_inf: tuple, atom_list: list) -> None:
     else:
         print("Charge sum - point charges = there's no point charges.")
 
+def make_xyz_line(element, coords):
+    new_line = element + '\t\t' + '{:06.6f}'.format(coords[0]) + '     ' + \
+        '{:06.6f}'.format(coords[1]) + '     ' + \
+        '{:06.6f}'.format(coords[2])
+    return new_line
+
+def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
+    """
+    Parameters
+    ----------
+    output_f : FILE
+        file to which xyz content is written.
+    atoms_list : LIST
+        list of atom objects from which information on element and coordinates 
+        and layer are taken.
+    link_atom_list : LIST
+        list of link atom objects
+    layer : STRING
+        "HML", "HM" or "H" - all, H- and M-layers or H-layer (plus link atoms)
+
+    Returns
+    -------
+    None.
+
+    """
+    link_atoms = 0
+    H_atoms = 0
+    M_atoms = 0
+    L_atoms = 0
+    
+    list_of_lines = []
+
+    for atom in atoms_list:
+        element = atom.get_element()
+        coords = atom.get_coords()
+        oniom_layer = atom.get_oniom_layer()        
+
+        if oniom_layer == "H":
+            H_atoms += 1
+        elif oniom_layer == "L":
+            L_atoms += 1
+        elif oniom_layer == "M":
+            M_atoms += 1
+
+        if layer == "HML":
+            new_line = make_xyz_line(element, coords)
+            list_of_lines.append(new_line)
+
+        elif layer == "HM":
+            if (oniom_layer == "L"):
+                if atom.get_LAH():
+                    for lk_atom in link_atom_list:
+                        if atom.get_index() == lk_atom.get_index():
+                            H_coords = lk_atom.get_H_coords()
+                    element = "H"
+                    coords = H_coords
+                    link_atoms += 1
+                    new_line = make_xyz_line(element, coords)
+                    list_of_lines.append(new_line)       
+            elif (oniom_layer == "H") or (oniom_layer == "M"):
+                new_line = make_xyz_line(element, coords)
+                list_of_lines.append(new_line)
+
+        elif layer == "H":
+            if (oniom_layer == "L") or (oniom_layer == "M"):
+                if atom.get_LAH():
+                    for lk_atom in link_atom_list:
+                        if atom.get_index() == lk_atom.get_index():
+                            H_coords = lk_atom.get_H_coords()
+                    element = "H"
+                    coords = H_coords
+                    link_atoms += 1
+                    new_line = make_xyz_line(element, coords)
+                    list_of_lines.append(new_line)
+            elif (oniom_layer == "H"):
+                new_line = make_xyz_line(element, coords)
+                list_of_lines.append(new_line)                
+    
+    
+    if layer == "HML":
+        n_atoms = H_atoms + M_atoms + L_atoms
+    elif layer == "HM":
+        n_atoms = H_atoms + M_atoms + link_atoms
+    elif layer == "H":
+        n_atoms = H_atoms + link_atoms
+    
+    list_of_lines.insert(0, " ")
+    list_of_lines.insert(0, str(n_atoms))
+    for item in list_of_lines:
+        output_f.write("%s\n" % item)
+
+
 
 def write_new_file(atom_list: list, type: str, atom_inf: tuple) -> None:
     """
@@ -719,7 +981,7 @@ def write_new_file(atom_list: list, type: str, atom_inf: tuple) -> None:
 
     output = open("output_file", 'a')
 
-    header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(read_Chk()[0], '_new', read_Chk()[1]),
+    header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(read_Chk()[0], '_new', read_Chk()[1]),\
                     read_header())
     output.write(header)
     output.write('\n')
@@ -795,14 +1057,50 @@ def write_atom_inf(atom_inf: tuple) -> None:
         file_output.write('\n')
 
 
-def write_atom_inf_change(atom_inf: tuple, atom_list: list) -> int:
+# def write_atom_inf_change(atom_inf: tuple, atom_list: list) -> int:
+#     """
+#     print into a file the content of the atom_inf_change
+#     :param atom_inf: variable which contains atom_inf information
+#     :return:
+#     """
+#     i=0
+#     for atom in atom_inf[0]:
+#         element = atom.get_element()
+#         type = atom.get_type()
+#         at_charge = atom.get_at_charge()
+#         frozen = atom.get_frozen()
+#         if frozen is None:
+#             frozen = ''
+#         coords = atom.get_coords()
+#         oniom_layer = atom.get_oniom_layer()
+#         file_output.write(element + '-' + type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
+#                           '{:06.6f}'.format(coords[0]) + '     ' + \
+#                           '{:06.6f}'.format(coords[1]) + '     ' + \
+#                           '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)
+#         for link in atom_inf[1]:
+#             if link.get_index() == atom.get_index():
+#                 link_element = link.get_element()
+#                 link_type = link.at_type
+#                 link_charge = link.get_at_charge()
+#                 link_bonded_to = link.get_bonded_to()
+#                 file_output.write('  ' + link_element + '-' + link_type + '-' + '{:02.6f}'.format(link_charge) + \
+#                                   '\t' + str(link_bonded_to))
+#         file_output.write('\n')
+#         i += 1
+
+#     return i
+
+
+def write_oniom_atom_section(file, atom_list, link_atom_list):
     """
-    print into a file the content of the atom_inf_change
-    :param atom_inf: variable which contains atom_inf information
+    print into a file (ONIOM input) the atom section 
+    :param 
+    file - file object (to write to)
+    atom_list: list of atom objects
+    link_atom_list: list of link atom objects        
     :return:
     """
-    i=0
-    for atom in atom_inf[0]:
+    for atom in atom_list:
         element = atom.get_element()
         type = atom.get_type()
         at_charge = atom.get_at_charge()
@@ -811,22 +1109,21 @@ def write_atom_inf_change(atom_inf: tuple, atom_list: list) -> int:
             frozen = ''
         coords = atom.get_coords()
         oniom_layer = atom.get_oniom_layer()
-        file_output.write(element + '-' + type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
+        file.write(element + '-' + type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
                           '{:06.6f}'.format(coords[0]) + '     ' + \
                           '{:06.6f}'.format(coords[1]) + '     ' + \
                           '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)
-        for link in atom_inf[1]:
-            if link.get_index() == atom.get_index():
-                link_element = link.get_element()
-                link_type = link.at_type
-                link_charge = link.get_at_charge()
-                link_bonded_to = link.get_bonded_to()
-                file_output.write('  ' + link_element + '-' + link_type + '-' + '{:02.6f}'.format(link_charge) + \
+        if atom.get_LAH:
+            for link in link_atom_list:
+                if link.get_index() == atom.get_index():
+                    link_element = link.get_element()
+                    link_type = link.at_type
+                    link_charge = link.get_at_charge()
+                    link_bonded_to = link.get_bonded_to()
+                    file.write('  ' + link_element + '-' + link_type + '-' + '{:02.6f}'.format(link_charge) + \
                                   '\t' + str(link_bonded_to))
-        file_output.write('\n')
-        i += 1
-
-    return i
+                    break
+        file.write('\n')
 
 
 def write_points_charges(i: int, atom_list: list) -> None:
@@ -845,16 +1142,27 @@ def write_points_charges(i: int, atom_list: list) -> None:
         file_output.write('\n')
 
 
-def write_connect(connect) -> None:
+# def write_connect(connect) -> None:
+#     """
+#     print into a file the content of the connect
+#     :param connect: variable which contains connect section information
+#     :return:
+#     """
+#     file_output.write('\n')
+#     for key, value in sorted(connect.items()):
+#         value = [i for i in value if i > key]  # remove information about redundant connection
+#         file_output.write(str(key) + " " + " ".join(str(item) + " 1.0" for item in value) + '\n')
+
+def write_connect(file, connect) -> None:
     """
     print into a file the content of the connect
-    :param connect: variable which contains connect section information
+    :param connect - a dictionary with connectivity information
+    file - file object (to write to)
     :return:
     """
-    file_output.write('\n')
     for key, value in sorted(connect.items()):
         value = [i for i in value if i > key]  # remove information about redundant connection
-        file_output.write(str(key) + " " + " ".join(str(item) + " 1.0" for item in value) + '\n')
+        file.write(" " + str(key) + " " + " ".join(str(item) + " 1.0" for item in value) + ' \n')
 
 
 def write_redundant(redundant) -> None:
@@ -873,6 +1181,39 @@ def write_parm(parm) -> None:
     :return:
     """
     file_output.write('\n{}'.format(parm))
+
+
+def read_xyz_file(file):
+    """
+    reads xyz file
+    file - file object
+    :returns: xyz_atoms - a list of lists, each [str - element symbol, float -x coord, float - y, float - z]
+    """
+    xyz_atoms = []
+    file.seek(0)
+
+    line = file.readline()  # in order to read number of atoms
+    line = line.split()
+    n_read = int(line[0]) # number of atoms read from xyz header
+    
+    file.readline() # skip comment line
+
+    while True:
+        line = file.readline()
+        if line == '':
+            break
+
+        line = line.split()
+        element = line[0]
+        coords_x = float(line[1])
+        coords_y = float(line[2])
+        coords_z = float(line[3])
+        xyz_atoms.append([element, coords_x, coords_y, coords_z])
+
+    if n_read != len(xyz_atoms):
+        print("in function read_xyz_file: number of atoms read from file header: ", n_read, \
+              " does not match number of atoms found in the coordinate section: ", len(xyz_atoms))
+    return xyz_atoms
 
 
 def new_coords(fileName_xyz: str, atomObject_list: Tuple[List[atom], List[link_atom], List[int]]):
