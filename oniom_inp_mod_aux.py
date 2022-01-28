@@ -1245,25 +1245,150 @@ def new_coords(fileName_xyz: str, atomObject_list: Tuple[List[atom], List[link_a
     file_xyz.close()
 
 
-def new_charge(fileName_qout: str, atomObject_list):
-    """
-    change the charge values of atoms which oniom_layer set to H
-    :param fileName_qout: file that contains new atoms charge
-    :param atomObject_list: list of atoms which coords we want to change (use list which atom_inf function return)
-    :return:
-    """
-    file_qout = open("{}".format(fileName_qout), 'r')
-    new_charge_list = file_qout.read().split()
-    new_charge_list = [float(i) for i in new_charge_list]
-    ctr = 0
-    for index_atom in atomObject_list[2]:
-        if atomObject_list[0][index_atom - 1].get_oniom_layer() == 'L':
-            ctr += 1
-            continue
-        atomObject_list[0][index_atom - 1].set_at_charge(new_charge_list[ctr])
-        ctr += 1
+# def new_charge(fileName_qout: str, atomObject_list):
+#     """
+#     change the charge values of atoms which oniom_layer set to H
+#     :param fileName_qout: file that contains new atoms charge
+#     :param atomObject_list: list of atoms which coords we want to change (use list which atom_inf function return)
+#     :return:
+#     """
+#     file_qout = open("{}".format(fileName_qout), 'r')
+#     new_charge_list = file_qout.read().split()
+#     new_charge_list = [float(i) for i in new_charge_list]
+#     ctr = 0
+#     for index_atom in atomObject_list[2]:
+#         if atomObject_list[0][index_atom - 1].get_oniom_layer() == 'L':
+#             ctr += 1
+#             continue
+#         atomObject_list[0][index_atom - 1].set_at_charge(new_charge_list[ctr])
+#         ctr += 1
 
-    file_qout.close()
+#     file_qout.close()
+
+def read_qout_file(qout_f):
+    """
+    qout_f - file object
+    :return: a list with atomic charges (floats)
+    """
+    new_charge_list = qout_f.read().split()
+    new_charge_list = [float(i) for i in new_charge_list]
+    return new_charge_list
+    # ctr = 0
+    # for index_atom in atomObject_list[2]:
+    #     if atomObject_list[0][index_atom - 1].get_oniom_layer() == 'L':
+    #         ctr += 1
+    #         continue
+    #     atomObject_list[0][index_atom - 1].set_at_charge(new_charge_list[ctr])
+    #     ctr += 1
+
+    # file_qout.close()
+
+def count_atoms_in_layers(atom_obj_list):
+    """
+    calculates number of atoms in a list of atom objects
+
+    Parameters
+    ----------
+    atom_obj_list : LIST of atom objects
+        DESCRIPTION.
+
+    Returns
+    -------
+    n_at_in_oniom : INT
+        Total number of atoms in the list
+    n_atom_in_H_layer : INT
+        # of atoms in the H-layer
+    n_atom_in_M_layer : INT
+        # of atoms in the M-layer
+    n_atom_in_L_layer : INT
+        # of atoms in the L-layer
+    n_link_atoms_for_H : INT
+        # of link atoms
+
+    """
+    n_at_in_oniom = len(atom_obj_list)
+    n_atom_in_H_layer = 0
+    n_atom_in_M_layer = 0
+    n_atom_in_L_layer = 0
+    n_link_atoms_for_H = 0
+    for atom in atom_obj_list:
+        if atom.get_oniom_layer() == "H":
+            n_atom_in_H_layer += 1
+        elif atom.get_oniom_layer() == "M":
+            n_atom_in_M_layer += 1   
+        elif atom.get_oniom_layer() == "L":
+            n_atom_in_L_layer += 1    
+        if atom.get_LAH(): # wymaga uogólnienia na przypadek gdy H/M/L
+            n_link_atoms_for_H += 1
+            
+    return n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
+        n_link_atoms_for_H
+
+def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
+                         atoms_list, link_atoms_list, connect, redundant=None, params=None):
+    """
+    writes ONIOM input file
+
+    Parameters
+    ----------
+    file : file object
+        file to which ONIOM input will be written.
+    header : STRING
+        contains the header section of the input file.
+    comment : STRING
+        DESCRIPTION.
+    charge_and_spin : DICTIONARY
+        DESCRIPTION.
+    nlayers : INT
+        number of layers: 2 or 3.
+    atoms_list : LIST
+        list of atom objects.
+    link_atoms_list : LIST
+        list of link atom objects.
+    connect : DICTIONARY
+        dictionary with atoms connectivity information.
+    redundant : STRING, optional
+        redundant coordinate section (which may follow connectivity). The default is None.
+    params : STRING, optional
+        section with FF parameters. The default is None.
+
+    Returns
+    -------
+    None.
+
+    """
+    chk_read = read_Chk(header)
+    
+    old_chk_line = '%oldChk={}{}'.format(chk_read[0], chk_read[1])
+    new_header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(chk_read[0], '_new', chk_read[1]),
+                    header)
+
+    file.write(old_chk_line)
+    file.write(new_header)
+    file.write("\n")
+    file.write(comment)
+    file.write("\n")
+
+#    2-layers ONIOM
+#    chrgreal-low  spinreal-low  chrgmodel-high  spinmodel-high  chrgmodel-low  spinmodel-low
+#
+#    3-layer ONIOM
+#    cRealL  sRealL   cIntM   sIntM   cIntL  sIntL   cModH  sModH   cModM  sModM   cModL   sModL
+    
+    charge_spin_line = write_charge_spin(charge_and_spin, nlayers)
+    file.write(charge_spin_line + "\n")
+
+    write_oniom_atom_section(file, atoms_list, link_atoms_list)
+    file.write("\n")
+    write_connect(file, connect)
+    
+    if redundant:
+        file.write('\n{}'.format(redundant))
+    
+    if params:
+        file.write('\n{}'.format(params))
+        file.write("\n")
+
 
 
 # Main
