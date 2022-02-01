@@ -38,7 +38,8 @@ from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge
 from oniom_inp_mod_aux import read_atom_inf, read_connect_list, write_xyz_file
 from oniom_inp_mod_aux import read_xyz_file, read_Chk, write_charge_spin, write_oniom_atom_section
 from oniom_inp_mod_aux import write_connect, read_qout_file, count_atoms_in_layers
-from oniom_inp_mod_aux import write_oniom_inp_file
+from oniom_inp_mod_aux import write_oniom_inp_file, write_qm_input, charge_change
+from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system
 
 
 # Important variables (switches):
@@ -236,4 +237,52 @@ if switch == "rqq":
 ### ---------------------------------------------------------------------- ###
 ### CASE: write QM-only Gaussian input                                     ###
 if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
-    pass
+    off_atm_p_q = []
+    at_atm_p_q = [] 
+    qm_system_atoms = []
+    if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
+        mod_atoms_list = deepcopy(inp_atoms_list)
+        off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, switch)
+        at_atm_p_q = extract_at_atm_p_charges(mod_atoms_list, layer="L")
+        qm_system_atoms = extract_qm_system(mod_atoms_list, inp_link_atoms_list, layer="H")
+    elif switch == "wqm":
+        qm_system_atoms = extract_qm_system(inp_atoms_list, inp_link_atoms_list, layer="H")
+
+    all_point_charges = at_atm_p_q + off_atm_p_q
+
+    resp_header_read_radii =  "%chk=name.chk\n" +\
+                    "%Nproc=24\n" +\
+                    "%Mem=24GB\n" +\
+                    "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) charge\n" +\
+                    "nosymm Pop=(MK,ReadRadii) iop(6/33=2) iop(6/42=6) iop(6/50=1)\n"
+
+    resp_header =  "%chk=name.chk\n" +\
+                    "%Nproc=24\n" +\
+                    "%Mem=24GB\n" +\
+                    "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) charge\n" +\
+                    "nosymm Pop=(MK) iop(6/33=2) iop(6/42=6) iop(6/50=1)\n"
+
+    qm_header =     "%chk=name.chk\n" +\
+                    "%Nproc=24\n" +\
+                    "%Mem=24GB\n" +\
+                    "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) nosymm\n"
+
+    read_radii = True # wymaga okodowania
+    
+    out_file = open(output_fname, 'a')
+    
+    if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
+        comment = "QM/MM charge model: " + switch + "\n"
+        if read_radii:
+            write_qm_input(out_file, resp_header_read_radii, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+        else:
+            write_qm_input(out_file, resp_header, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+    elif switch == "wqm":
+        comment = "QM system from: " + oniom_inp + "\n"
+        write_qm_input(out_file, qm_header, comment, inp_charge_and_spin, qm_system_atoms)
+
+    out_file.close()
+
+
+
+
