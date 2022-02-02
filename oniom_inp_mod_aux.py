@@ -1559,6 +1559,23 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
 
 
 def extract_at_atm_p_charges(atoms_list, layer="L"):
+    """
+    extract at atom point charges from the given layer 
+
+    Parameters
+    ----------
+    atoms_list : list
+        list of atom objects for the whole ONIOM system.
+    layer : string, optional
+        atomic charges from which layer shall be extracted. 
+        Can be either "L", "M" or "H". The default is "L".
+
+    Returns
+    -------
+    at_at_p_charges : list
+        a list of point charge objects.
+
+    """
     at_at_p_charges = []
     for atom in atoms_list:
         atm_layer = atom.get_oniom_layer()
@@ -1570,6 +1587,24 @@ def extract_at_atm_p_charges(atoms_list, layer="L"):
     return at_at_p_charges
 
 def extract_qm_system(atoms_list, link_atom_list, layer="H"):
+    """
+    extracts a subsystem of ONIOM calculations: H or M + link atoms
+
+    Parameters
+    ----------
+    atoms_list : list
+        a list of atom objects for the whole ONIOM system.
+    link_atom_list : list
+        a list of link atom objects for the whole ONIOM system.
+    layer : string, optional
+        which subsystem shall be extracted, "H" or "M". The default is "H".
+
+    Returns
+    -------
+    qm_system_atoms : list
+        a list of atom and link atom objects consisting the extracted subsystem.
+
+    """
     qm_system_atoms = []
     for atom in atoms_list:
         atm_layer = atom.get_oniom_layer()
@@ -1583,6 +1618,65 @@ def extract_qm_system(atoms_list, link_atom_list, layer="H"):
                         qm_system_atoms.append(link)
                         break
     return qm_system_atoms
+
+def extract_chemical_composition(atoms_list):
+    """
+    extracts atom composition of H, M and L layers of an ONIOM system
+
+    Parameters
+    ----------
+    atoms_list : list
+        a list of atom objects for the whole ONIOM system.
+
+    Returns
+    -------
+    H_layer_composition : list 
+        a list of tuples (element, #atoms), e.g. (C, 18).
+    M_layer_composition : list
+        as above, for the M-layer
+    L_layer_composition : list
+        as above, for the L-layer
+
+    """
+    H_layer_composition = [] # a list of tuples (element, #atoms), e.g. (C, 18)
+    M_layer_composition = []
+    L_layer_composition = []
+    H_layer_dic = {}
+    M_layer_dic = {}
+    L_layer_dic = {}
+    for atom in atoms_list:
+        atm_layer = atom.get_oniom_layer()
+        atm_element = atom.get_element()
+        if atm_layer == "H":
+            if atm_element in H_layer_dic:
+                H_layer_dic[atm_element] += 1
+            else:
+                H_layer_dic[atm_element] = 1
+        elif atm_layer == "M":
+            if atm_element in M_layer_dic:
+                M_layer_dic[atm_element] += 1
+            else:
+                M_layer_dic[atm_element] = 1
+        elif atm_layer == "L":
+            if atm_element in L_layer_dic:
+                L_layer_dic[atm_element] += 1
+            else:
+                L_layer_dic[atm_element] = 1
+    
+    for key in H_layer_dic.keys():
+        H_layer_composition.append(tuple([key, H_layer_dic[key]]))
+    for key in M_layer_dic.keys():
+        M_layer_composition.append(tuple([key, M_layer_dic[key]]))
+    for key in L_layer_dic.keys():
+        L_layer_composition.append(tuple([key, L_layer_dic[key]]))
+    
+    return H_layer_composition, M_layer_composition, L_layer_composition
+    
+    
+    
+    
+    
+    
 
 
 # Main
