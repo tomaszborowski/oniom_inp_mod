@@ -36,10 +36,11 @@ from copy import deepcopy
 
 from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin
 from oniom_inp_mod_aux import read_atom_inf, read_connect_list, write_xyz_file
-from oniom_inp_mod_aux import read_xyz_file, read_Chk, write_charge_spin, write_oniom_atom_section
-from oniom_inp_mod_aux import write_connect, read_qout_file, count_atoms_in_layers
+from oniom_inp_mod_aux import read_xyz_file, read_qout_file, count_atoms_in_layers
 from oniom_inp_mod_aux import write_oniom_inp_file, write_qm_input, charge_change
-from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system
+from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition
+from oniom_inp_mod_aux import vdw_radii, charge_summary, report_charges
+#from oniom_inp_mod_aux import 
 
 
 # Important variables (switches):
@@ -66,7 +67,7 @@ nlayers = 2 # number of layers in the ONIOM (2 or 3)
 
 oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
 output_fname = 'input_examples/test_out'
-switch = 'wqm'
+switch = 'wqm_z1'
 
 # oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
 # output_fname = 'input_examples/test_out'
@@ -237,9 +238,13 @@ if switch == "rqq":
 ### ---------------------------------------------------------------------- ###
 ### CASE: write QM-only Gaussian input                                     ###
 if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
+    read_radii = False # if additional radii info will be placed in the Gaussian input file
     off_atm_p_q = []
     at_atm_p_q = [] 
     qm_system_atoms = []
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, [])
+    print("\nTotal charges read from the input file:")
+    report_charges(sum_charges_initial)
     if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
         mod_atoms_list = deepcopy(inp_atoms_list)
         off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, switch)
@@ -249,6 +254,11 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
         qm_system_atoms = extract_qm_system(inp_atoms_list, inp_link_atoms_list, layer="H")
 
     all_point_charges = at_atm_p_q + off_atm_p_q
+    
+    if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:  
+        sum_charges_final = charge_summary(mod_atoms_list, inp_link_atoms_list, off_atm_p_q)
+        print("\nTotal charges after charge modification:")
+        report_charges(sum_charges_final)
 
     resp_header_read_radii =  "%chk=name.chk\n" +\
                     "%Nproc=24\n" +\
@@ -266,8 +276,21 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
                     "%Nproc=24\n" +\
                     "%Mem=24GB\n" +\
                     "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) nosymm\n"
+    
+    if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
+        H_layer_composition, M_layer_composition, L_layer_composition = extract_chemical_composition(mod_atoms_list)
+    elif switch == "wqm":
+        H_layer_composition, M_layer_composition, L_layer_composition = extract_chemical_composition(inp_atoms_list)
 
-    read_radii = True # wymaga okodowania
+    read_radii_lines = ""
+    
+    for item in H_layer_composition:
+        ele = item[0]
+        for key in vdw_radii.keys():
+            if key == ele:
+                read_radii = True
+                line = str(key) + "   " + str(vdw_radii[key]) + "\n"
+                read_radii_lines += line               
     
     out_file = open(output_fname, 'a')
     
@@ -275,11 +298,18 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
         comment = "QM/MM charge model: " + switch + "\n"
         if read_radii:
             write_qm_input(out_file, resp_header_read_radii, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+            out_file.write(read_radii_lines)
         else:
             write_qm_input(out_file, resp_header, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+        gesp_f_name = output_fname + ".gesp\n"
+        out_file.write("\n")
+        out_file.write(gesp_f_name)
+        out_file.write("\n")
+        out_file.write(gesp_f_name)
+        out_file.write("\n")
     elif switch == "wqm":
         comment = "QM system from: " + oniom_inp + "\n"
-        write_qm_input(out_file, qm_header, comment, inp_charge_and_spin, qm_system_atoms)
+        write_qm_input(out_file, qm_header, comment, inp_charge_and_spin, qm_system_atoms, [])
 
     out_file.close()
 
