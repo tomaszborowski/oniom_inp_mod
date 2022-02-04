@@ -26,9 +26,10 @@ Meaning of the switches:
     cs   - prepare input for electronic embedding with the cs charge model
     wqm  - write QM-only Gaussian input
     wqm_z1/z2/z3/rc/rcd/cs - write QM-only Gaussian input for ESP(RESP) calculations
-    omod - modify oniom partitioning (2 or 3-layered)
+    omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
+last update: 4 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
@@ -39,12 +40,12 @@ from oniom_inp_mod_aux import read_atom_inf, read_connect_list, write_xyz_file
 from oniom_inp_mod_aux import read_xyz_file, read_qout_file, count_atoms_in_layers
 from oniom_inp_mod_aux import write_oniom_inp_file, write_qm_input, charge_change
 from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition
-from oniom_inp_mod_aux import vdw_radii, charge_summary, report_charges
-#from oniom_inp_mod_aux import 
+from oniom_inp_mod_aux import vdw_radii, charge_summary, report_charges, nlayers_ONIOM
+from oniom_inp_mod_aux import read_single_string, read_single_number
 
 
 # Important variables (switches):
-nlayers = 2 # number of layers in the ONIOM (2 or 3)
+#nlayers = 2 # number of layers in the ONIOM (2 or 3)
 
 
 
@@ -65,19 +66,22 @@ nlayers = 2 # number of layers in the ONIOM (2 or 3)
 # add_inp_fname = 'input_examples/fake.qout'
 # switch = 'rqq'
 
-oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-output_fname = 'input_examples/test_out'
-switch = 'wqm_z1'
+# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
+# output_fname = 'input_examples/test_out'
+# switch = 'wqm_z1'
 
 # oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
 # output_fname = 'input_examples/test_out'
-# switch = 'z1'
+# switch = 'cs'
 
 # resp_qout_file_to_read = 'input_examples/h6h-oxo+succinate+water_hyo_rep3_copy3_clust3-resp2.qout'
 # whole_system_xyz_file_to_read = 'input_examples/h6h-oxo+succinate+water_hyo_17_07_b_moved.xyz'
 # qm_system_xyz_file_to_read = ''
 
-
+oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
+output_fname = 'input_examples/test_out'
+add_inp_fname = 'input_examples/omod.inp'
+switch = 'omod'
 
 
 ### ---------------------------------------------------------------------- ###
@@ -89,7 +93,8 @@ switch = 'wqm_z1'
 #     add_inp_fname = sys.argv[4]
 
 # LEGAL_SWITCHES = ["eag", "eqg", "ehmg", "rag", "rqg", "rqq", "z1", "z2", "z3",\
-#                   "rc", "rcd", "cs", "omod"]
+#                   "rc", "rcd", "cs", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc",\
+#                   "wqm_rcd", "wqm_cs", "omod"]
 
 # if switch not in LEGAL_SWITCHES:
 #     print("Provided switch: ", switch, " was not recognized\n")
@@ -169,9 +174,8 @@ if switch in ["rag", "rqg"]:
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
         n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)
 
+    nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
 
-    if (n_atom_in_M_layer > 0) and (n_atom_in_L_layer > 0):
-        nlayers = 3
     
     if switch == "rag":
         if n_at_in_xyz != n_at_in_oniom:
@@ -206,6 +210,10 @@ if switch in ["rag", "rqg"]:
 ### ---------------------------------------------------------------------- ###
 ### CASE: replace atomic charges of H-layer atoms to those read from qout  ###
 if switch == "rqq":
+    n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
+        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)    
+    nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
+    
     qout_f = open(add_inp_fname, 'r')
     qm_system_new_q = read_qout_file(qout_f)
     qout_f.close()
@@ -247,7 +255,8 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
     report_charges(sum_charges_initial)
     if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
         mod_atoms_list = deepcopy(inp_atoms_list)
-        off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, switch)
+        q_model = switch[4:]
+        off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, q_model)
         at_atm_p_q = extract_at_atm_p_charges(mod_atoms_list, layer="L")
         qm_system_atoms = extract_qm_system(mod_atoms_list, inp_link_atoms_list, layer="H")
     elif switch == "wqm":
@@ -314,5 +323,112 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
     out_file.close()
 
 
+### ---------------------------------------------------------------------- ###
+### CASE: write ONIOM=EE Gaussian input                                    ###
+if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
 
+#    inp_header -> mod_header
+#        z1 Oniom(...)=ScaleCharge=555555
+#        z2 Oniom(...)=ScaleCharge=555550
+#        z3 Oniom(...)=ScaleCharge=555500
+#        cs/rc/rcd Oniom(...)=ScaleCharge=555555 charge
+
+    find = re.search(r'[Oo][Nn][Ii][Oo][Mm]\((.+)\)', inp_header)
+    if find:
+        old_o_command = find.group(0)       
+    else:
+        old_o_command = None
+
+    find2 = re.search(r'=[Ee][Mm][Bb][Ee][Dd][Cc][Hh][Aa][Rr][Gg][Ee]', inp_header)
+    if find2:
+        old_ee = find2.group(0)
+    else:
+        old_ee = None
+        
+    find3 = re.search(r'=[Ss][Cc][Aa][Ll][Ee][Cc][Hh][Aa][Rr][Gg][Ee]=\d{1,6}', inp_header)
+    if find3:
+        old_scalecharge = find3.group(0)
+    else:
+        old_scalecharge = None    
+
+
+    if switch in ["rc", "rcd", "cs" ]:
+        new_scalecharge = "=ScaleCharge=555555 charge "
+    elif switch == "z1":
+        new_scalecharge = "=ScaleCharge=555555 "
+    elif switch == "z2":
+        new_scalecharge = "=ScaleCharge=555550 "
+    elif switch == "z3":
+        new_scalecharge = "=ScaleCharge=555500 "
+
+    if old_scalecharge:
+        mod_header = inp_header.replace(old_scalecharge, new_scalecharge)
+    elif old_ee:
+        mod_header = inp_header.replace(old_ee, new_scalecharge)
+    elif old_o_command:
+        new_o_command = old_o_command + new_scalecharge
+        mod_header = inp_header.replace(old_o_command, new_o_command)
+
+    n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
+        n_link_atoms_for_H = count_atoms_in_layers(inp_atoms_list)
+    nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)  
+        
+    comment = "QM/MM charge model: " + switch + "\n"
+    off_atm_p_q = []
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, [])
+    print("\nTotal charges read from the input file:")
+    report_charges(sum_charges_initial)
+
+    mod_atoms_list = deepcopy(inp_atoms_list)
+    off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, switch)
+  
+    sum_charges_final = charge_summary(mod_atoms_list, inp_link_atoms_list, off_atm_p_q)
+    print("\nTotal charges after charge modification:")
+    report_charges(sum_charges_final)
+
+    out_file = open(output_fname, 'a')
+    write_oniom_inp_file(out_file, mod_header, comment, inp_charge_and_spin, nlayers,\
+                         mod_atoms_list, inp_link_atoms_list, inp_connect,\
+                         inp_redundant, inp_params, off_atm_p_q)
+    out_file.close()
+
+
+### -------------------------------------------------------------------------- ###
+### CASE: read separate input file (to modify the ONIOM system partitioning)   ###
+if switch == "omod":
+    input_f = open(add_inp_fname, 'r')
+    
+    pdb_file_name = read_single_string(input_f, "%pdb_f_name")
+    qH = read_single_number(input_f, "%H_charge")
+    mH = read_single_number(input_f, "%H_multip")
+    qM = read_single_number(input_f, "%M_charge")
+    mM = read_single_number(input_f, "%M_multip")
+    qL = read_single_number(input_f, "%L_charge")
+    mL = read_single_number(input_f, "%L_multip")
+    
+
+    
+    input_f.close()
+
+#   read pdb and create residue list
+
+    mod_charge_and_spin = deepcopy(inp_charge_and_spin)
+    if qH:
+        mod_charge_and_spin["ChrgModelHigh"] = qH
+        mod_charge_and_spin["ChrgModelMed"] = qH
+        mod_charge_and_spin["ChrgModelLow"] = qH
+    elif mH:
+        mod_charge_and_spin["SpinModelHigh"] = mH
+        mod_charge_and_spin["SpinModelMed"] = mH
+        mod_charge_and_spin["SpinModelLow"] = mH
+    elif qM:
+        mod_charge_and_spin["ChrgIntMed"] = qM
+        mod_charge_and_spin["ChrgIntLow"] = qM
+    elif mM:
+        mod_charge_and_spin["SpinIntlMed"] = mH
+        mod_charge_and_spin["SpinIntLow"] = mH
+    elif qL:
+        mod_charge_and_spin["ChrgRealLow"] = qL
+    elif mL:
+        mod_charge_and_spin["SpinRealLow"] = mL
 

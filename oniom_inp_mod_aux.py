@@ -1,9 +1,15 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
+
+last update: 4 Feb 2022
 """
-import re
+import re, math, scipy, string
 import numpy as np
 from typing import Tuple, List
+
+# CONSTANTS
+letters = string.ascii_uppercase
+digits = string.digits
 
 vdw_radii = {\
 'Sc':2.11, 'Ti':1.9, 'V':1.85, 'Cr':1.8, 'Mn':1.75,'Fe':1.7, 'Ni':1.63, 'Cu':1.40, 'Zn':1.39,\
@@ -495,6 +501,319 @@ def read_qout_file(qout_f):
     return new_charge_list
 
 
+def read_single_number(file, flag_line):
+    """reads a single number from file and returns it as a numerical value 
+    file : file object
+    flag_line : string marker preceeding the value to be read"""
+    file.seek(0)
+    while True:
+        a = file.readline()
+        if not a:
+            break
+        match_flag=re.search(flag_line,a)
+        if match_flag:
+            if len(a.split())>1:
+                return eval(a.split()[1])
+ 
+            
+def read_single_string(file, flag_line):
+    """reads a single string from file and returns it 
+    file : file object
+    flag_line : string marker preceeding the string to be read"""
+    file.seek(0)
+    while True:
+        a = file.readline()
+        if not a:
+            break
+        match_flag=re.search(flag_line,a)
+        if match_flag:
+            if len(a.split())>1:
+                return a.split()[1]
+
+
+def read_rsi_index(file, flag_line, end_line):
+    """reads residue sidechain and index lines 
+    contained between lines starting with flag_line
+    and end_line from file 
+    ---
+    file : file object
+    flag_line : string
+    end_line : strong
+    ---
+    Returns lists:
+    residue_index, sidechain_index and index_index
+    """
+    residue_index = []
+    sidechain_index = []
+    index_index = []
+    # w pliku file wyszukaj linii zawierajacej flag_line
+    file.seek(0)
+    while True:
+        a = file.readline()
+        if not a:
+            break
+        match_flag=re.search(flag_line,a)
+        if match_flag:            
+            # wczytuj kolejne linie i sprawdzaj czy zawieraja "sidechain",
+            # "residue" lub "index"
+            while True:
+                a = file.readline()
+                if not a:
+                    break
+                elif re.search(end_line,a):
+                    break
+                match_residue=re.search("residue",a)
+                match_sidechain=re.search("sidechain",a)
+                match_index=re.search("index",a)
+                if match_residue:                            
+                    temp = a.split()
+                    temp.remove('residue')
+                    for item in temp:
+                        residue_index.append(eval(item))
+                elif match_sidechain:
+                    temp = a.split()
+                    temp.remove('sidechain')
+                    for item in temp:
+                        sidechain_index.append(eval(item))
+                elif match_index:
+                    temp = a.split()
+                    temp.remove('index')
+                    for item in temp:
+                        index_index.append(eval(item))
+            for lista in [residue_index, sidechain_index, index_index]:
+                temp = set(lista)
+                temp_2 = list(temp)
+                lista = temp_2.sort()
+    return residue_index, sidechain_index, index_index
+
+
+def read_rsi_names(file, flag_line, end_line):
+    """reads residue names contained between lines starting with flag_line
+    and end_line from file 
+    ---
+    file : file object
+    flag_line : string
+    end_line : strong
+    ---
+    Returns a list:
+    residue_names 
+    """
+    residue_names = []
+    # w pliku file wyszukaj linii zawierajacej flag_line
+    file.seek(0)
+    while True:
+        a = file.readline()
+        if not a:
+            break
+        match_flag=re.search(flag_line,a)
+        if match_flag:            
+            # wczytuj kolejne linie i sprawdzaj czy zawieraja "resname"
+            while True:
+                a = file.readline()
+                if not a:
+                    break
+                elif re.search(end_line,a):
+                    break
+                match_residue=re.search("resname",a)
+                if match_residue:                            
+                    temp = a.split()
+                    temp.remove('resname')
+                    for item in temp:
+                        residue_names.append(item)
+    temp = set(residue_names)
+    temp_2 = list(temp)
+    temp_2.sort()
+    return residue_names
+
+
+def input_read_qm_part(file, residues, atoms, layer="H"):
+    """
+    Reads H_layer on M_layer from the input file
+    Sets the oniom_layer attribute of atoms to 'H' or 'M' 
+    Returns a list qm_part with atom objects making the QM part (H_layer or M_layer)
+    (the list is sorted wrt atom index)
+    ----
+    file : file object
+    residues : a list with residue obects for the system
+    atoms : a list with atom obects for the system
+    """   
+    assert (type(residues) == list), "residues must be a list of residue objects"
+    assert (type(atoms) == list), "atoms must be a list of atom objects"
+    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    qm_part = []
+    if layer == "H":
+        start_flag = "%H_layer"
+        end_flag = "%end_H_layer"
+    elif layer == "M":
+        start_flag = "%M_layer"
+        end_flag = "%end_M_layer"       
+    residue_index,sidechain_index,index_index = read_rsi_index(file, start_flag, end_flag)
+    if (len(residue_index) + len(sidechain_index) + len(index_index))>0:
+        if layer == "H":
+            print('\nThe H-layer of the system will consist of: ')
+        elif layer == "M":
+            print('\nThe M-layer of the system will consist of: ')
+        print('residues: ',residue_index)
+        print('and sidechains: ',sidechain_index)
+        print('and atoms: ',index_index,'\n')
+        for i in residue_index:
+            if residues[i]:
+                for at in residues[i].get_atoms():
+                    qm_part.append(at)
+            else:
+                print('\n Residue list does not have residue with index: ',i, '\n')
+        for i in sidechain_index:
+            if residues[i]:
+                for at in residues[i].get_atoms():
+                    if not at.get_in_mainchain():
+                        qm_part.append(at)
+            else:
+                    print('\n Residue list does not have residue with index: ',i, '\n')
+        for i in index_index:
+            if atoms[i]:
+                qm_part.append(atoms[i])
+            else:
+                print('\n Atom list does not have atom with index: ',i,'\n')
+        temp = set(qm_part)
+        qm_part = list(temp)
+        qm_part.sort(key=lambda x: x.get_index(), reverse=True)
+        for at in qm_part:
+            if layer == "H":
+                at.set_oniom_layer('H')
+            elif layer == "M":
+                at.set_oniom_layer('M')
+    return qm_part 
+
+
+def input_read_link_atoms(file, atoms, border="HL"):
+    """
+    Reads link_atoms section from the input file
+    
+    Returns a list link_atoms with link_atom objects 
+    (the list is sorted wrt atom index)
+    ----
+    file : file object
+    atoms : a list with atom obects for the system
+    border : string, "HL", "HM" or "ML" - at which interface the link atoms are
+    """   
+    assert (type(atoms) == list), "atoms must be a list of atom objects"
+    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    MM_link_atoms = []
+    HLA_types = []
+    link_atoms = []
+    index_index = []
+    # w pliku file wyszukaj linii zawierajacej "%link_atoms"
+    if border == "HL":
+        flag_line = "%H_L_link_atoms"
+        end_line = "%end_H_L_link_atoms"
+        info_str = " HL "
+        layer = "H"
+    elif border == "HM":
+        flag_line = "%H_M_link_atoms"
+        end_line = "%end_H_M_link_atoms"
+        info_str = " HM "
+        layer = "H"
+    elif border == "ML":
+        flag_line = "%M_L_link_atoms"
+        end_line = "%end_M_L_link_atoms"    
+        info_str = " ML "
+        layer = "M"
+    file.seek(0)
+    while True:
+        a = file.readline()
+        if not a:
+            break
+        match_flag=re.search(flag_line,a)
+        if match_flag:            
+            # wczytuj kolejne linie i sprawdzaj czy zawieraja "index"
+            while True:
+                a = file.readline()
+                if not a:
+                    break
+                elif re.search(end_line,a):
+                    break
+                match_index=re.search("index",a)
+                match_type=re.search("type",a)
+                if match_index:
+                    temp = a.split()
+                    temp.remove('index')
+                    for item in temp:
+                        index_index.append(eval(item))
+                elif match_type:
+                    temp = a.split()
+                    temp.remove('type')
+                    for item in temp:
+                        HLA_types.append(item)
+            if len(index_index) == len(HLA_types) and len(index_index)>0 :
+                index_index, HLA_types = (list(t) for t in zip(*sorted(zip(index_index, HLA_types))))
+                print('\nThe atoms replaced by H-link atoms at the' + info_str + 'boarder are ')
+                print('atoms with index: ', index_index)
+                print('with H-link atom Amber atom types: ', HLA_types,'\n')
+                for i in index_index:
+                    if atoms[i]:
+                        MM_link_atoms.append(atoms[i])
+                    else:
+                        print('Atom list does not have atom with index: ',i,'\n')
+                for at,tp in zip(MM_link_atoms, HLA_types):
+                    link_atoms.append(atom_to_link_atom(at, tp, 0.000001, layer))
+    return link_atoms 
+
+
+def input_read_freeze(file, residues, atoms):
+    """
+    Reads freeze data from the input file
+    Sets the frozen atribute of atoms to be fixed to -1 
+    Returns a list frozen with atom objects with frozen = -1
+    (the list is sorted wrt atom index)
+    ----
+    file : file object
+    residues : a list with residue obects for the system
+    atoms : a list with atom objects for the system
+    """   
+    assert (type(residues) == list), "residues must be a list of residue objects"
+    assert (type(atoms) == list), "atoms must be a list of atom objects"
+    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    frozen = []
+    freeze_reference = []
+    r_free = read_single_number(file,"%r_free")
+    residue_index,sidechain_index,index_index = read_rsi_index(file, "%freeze_ref", "%end_freeze_ref")
+    if (len(residue_index) + len(sidechain_index) + len(index_index))>0:
+        print('\nThe reference with respect to which FREEZING will be done consist of: ')
+        print('residues: ',residue_index)
+        print('and sidechains: ',sidechain_index)
+        print('and atoms: ',index_index)
+        print('\nAll residues with at least one atom within: ',r_free,' A from the above reference will not be fixed \n')
+        for i in residue_index:
+            if residues[i]:
+                for at in residues[i].get_atoms():
+                    freeze_reference.append(at)
+            else:
+                print('\n Residue list does not have residue with index: ',i, '\n')
+        for i in sidechain_index:
+            if residues[i]:
+                for at in residues[i].get_atoms():
+                    if not at.get_in_mainchain():
+                        freeze_reference.append(at)
+            else:
+                print('\n Residue list does not have residue with index: ',i, '\n')
+        for i in index_index:
+            if atoms[i]:
+                freeze_reference.append(atoms[i])
+            else:
+                print('\n Atom list does not have atom with index: ',i, '\n')
+        temp = set(freeze_reference)
+        freeze_reference = list(temp)
+        freeze_reference.sort(key=lambda x: x.get_index(), reverse=True)
+            
+        within_resids_bool = residues_within_r_from_atom_list(residues, freeze_reference, r_free)
+        for w,resid in zip(within_resids_bool,residues):
+            if not w:
+                frozen.append(resid)
+                for at in resid.get_atoms():
+                    at.set_frozen(-1)
+    return frozen 
+
+
 #########################
 #### Write functions ####
 #########################
@@ -726,7 +1045,7 @@ def write_connect(file, connect) -> None:
 
         
 def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
-                         atoms_list, link_atoms_list, connect, redundant=None, params=None):
+                         atoms_list, link_atoms_list, connect, redundant=None, params=None, p_charges=None):
     """
     writes ONIOM input file
 
@@ -752,7 +1071,8 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         redundant coordinate section (which may follow connectivity). The default is None.
     params : STRING, optional
         section with FF parameters. The default is None.
-
+    p_charges : LIST, optional
+        a list of off-atom point charges (objects). The default is None.
     Returns
     -------
     None.
@@ -790,10 +1110,247 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         file.write('\n{}'.format(params))
         file.write("\n")
 
+    if len(p_charges) > 0:
+        for p_q in p_charges:
+            file.write(p_q.get_string())
+        file.write('\n')
+        
+
+def write_pdb_file(residue_list, file_name, write_Q=False):
+    """writes a PDB file with a name file_name
+    residue_list - a list of residue objects 
+    only residues with trim=False are written to the file"""
+    prev_resid_chain = ''
+    pdb_file = open(file_name, 'w')
+    residue_list_no_trim = []
+    for residue in residue_list:
+        if not residue.get_trim():
+            residue_list_no_trim.append(residue)
+    for residue in residue_list_no_trim:
+        resid_name = residue.get_label()
+        resid_name = resid_name.rjust(3, ' ')
+        resid_number = str(residue.get_new_index() + 1)
+        resid_number = resid_number.rjust(4, ' ')
+        for atom in residue.get_atoms():
+            ele = atom.get_element()
+            ele = ele.rjust(2, ' ')
+            at_coord = atom.get_coords()
+            at_name = atom.get_name()
+            at_name = at_name.ljust(4, ' ')
+            at_number = atom.get_new_index() + 1
+            at_number = str(at_number)
+            at_number = at_number.rjust(5, ' ')
+            at_layer = atom.get_oniom_layer()
+            at_LAH = atom.get_LAH()
+            if at_LAH:
+               at_beta = 1.0 
+            elif at_layer == 'H':
+                at_beta = 2.0
+            else: 
+                at_beta = 0.0
+            at_frozen = atom.get_frozen()    
+            if at_frozen == 0:
+                at_occupancy = 1.0
+            else:
+                at_occupancy = 0.0    
+            at_charge = atom.get_at_charge()
+            line = 'ATOM' + '  ' + at_number + ' ' +\
+            at_name + ' ' + resid_name + '  ' + resid_number + '    ' +\
+            '{:8.3f}'.format(at_coord[0]) + '{:8.3f}'.format(at_coord[1]) + '{:8.3f}'.format(at_coord[2]) +\
+            '{:6.2f}'.format(at_occupancy) + '{:6.2f}'.format(at_beta) + '    ' + ele            
+            if write_Q:
+                line = line + ' ' + '{:5.3f}'.format(at_charge)
+            line = line + '\n'
+            pdb_file.write(line)
+        if residue.get_new_index() == 0:
+            prev_resid_chain = residue.get_chain()
+            if residue_list_no_trim[1].get_chain() != prev_resid_chain:
+                pdb_file.write('TER\n')
+        elif residue.get_chain() != prev_resid_chain:
+            prev_resid_chain = residue.get_chain()
+            pdb_file.write('TER\n')
+        else:
+            pass
+    pdb_file.close() 
+
         
 #########################
 #### Other functions ####
 #########################
+def NC_in_main_chain(residue):
+    """ checks is the residue contains N(M) and C(M) atoms
+    if yes, returns True, otherwise returns False"""
+    temp = []
+    for atom in residue.get_main_chain_atoms():
+        temp.append(atom.get_element())
+    main_chain_elements = set(temp)
+    if 'N' in main_chain_elements and 'C' in main_chain_elements:
+        return True
+    else:
+        return False
+
+
+def N_CO_in_residue(residue):
+    """ checks is the residue contains N and CO as a first and two last atoms
+    if yes, returns True, otherwise returns False"""
+    temp = []
+    for atom in residue.get_atoms():
+        temp.append(atom.get_element())
+    if len(temp) > 3:
+        if temp[0] == 'N' and temp[-2] == 'C' and temp[-1] == 'O':
+            return True
+        elif temp[0] == 'N' and temp[-3] == 'C' and temp[-2] == 'O':
+            return True
+        else:
+            return False
+    else:
+        return False
+    
+    
+def main_side_chain(residue):
+    """ determined which atoms are in the mainchain in a residue
+    looks for N-C-C-O fragment and then H atoms bound to N or C
+    and O atom bound to the second C 
+    when found sets in_mainchain atribute of these atoms to True
+    and adds them into main_chain_atoms list of this residue """
+    for at1 in residue.get_atoms():
+        if at1.get_element() == 'N':
+            at1_connect = at1.get_connect_list()
+            for at2 in residue.get_atoms():
+                if at2.get_element() == 'C' and at2.get_index() in at1_connect:
+                    at2_connect = at2.get_connect_list()
+                    for at3 in residue.get_atoms():
+                        if at3.get_element() == 'C' and at3.get_index() in at2_connect:
+                            at3_connect = at3.get_connect_list()
+                            for at4 in residue.get_atoms():
+                                if at4.get_element() == 'O' and at4.get_index() in at3_connect:
+                                    for at in [at1, at2, at3, at4]:
+                                        at.set_in_mainchain(True)
+                                        if at not in residue.get_main_chain_atoms():
+                                            residue.add_main_chain_atom(at)
+                                    for at5 in residue.get_atoms():
+                                        if (at5.get_element() == 'H' and (at5.get_index() in at1_connect))\
+                                        or (at5.get_element() == 'H' and (at5.get_index() in at2_connect))\
+                                        or (at5.get_element() == 'O' and (at5.get_index() in at3_connect) and at5 != at4):
+                                            at5.set_in_mainchain(True)
+                                            residue.add_main_chain_atom(at5)
+
+
+def atom_to_link_atom(at_ins, amb_type, chrg = 0.000001, layer = 'H'):
+    """
+    Based on atom object instance at_ins 
+    generate and return a hydrogen link_atom_object
+    ----
+    at_ins : instance of atom object
+    amb_type : string, amber atom type for H-link atom
+    chrg : float, atomic charge to be ascribed to H-link atom
+    """
+    new_link_atom = link_atom( at_ins.get_coords(), at_ins.get_index(), 'H' )
+    new_link_atom.set_connect_list( at_ins.get_connect_list() )
+    new_link_atom.set_oniom_layer(layer)
+    new_link_atom.set_type(amb_type)
+    new_link_atom.set_at_charge(chrg)
+    new_link_atom.set_mm_element( at_ins.get_element() )
+    return new_link_atom 
+
+
+def generate_label():
+    label=''
+    i = 0
+    while True:
+        j = int(i/26)
+        k = i%26
+        label = letters[k]
+        if i > 0:
+            for m in range( int(math.log(i,26)) ):
+                k = j%26
+                j = int(j/26)
+                label = letters[k] + label
+        i += 1
+        yield label
+        
+        
+def residue_within_r_from_atom(residue, atom, r):
+    """checks if any atom of residue lies within r (d(at@res --- atom) <= r)
+    of atom
+    if yes, returns True, if no, returns False"""
+    ref_coords = np.array(atom.get_coords(),dtype=float)
+    for atom_from_resid in residue.get_atoms():
+        coords = np.array(atom_from_resid.get_coords(),dtype=float)
+        dist = scipy.spatial.distance.cdist(ref_coords,coords)
+        if dist <= r:
+            return True
+    return False
+
+
+def residues_within_r_from_atom(residue_list, atom, r):
+    """checks if any atom of residue from a residue_list 
+    lies within r (d(at@res --- atom) <= r) of atom
+    if yes, returns a list with True value at corresponding index
+    """
+    if not atom:
+        result = [True for i in range(len(residue_list))]
+        return result
+    result = []
+    temp = []
+    temp.append(atom.get_coords())
+    ref_coords = np.array(temp,dtype=float)
+    for residue in residue_list:
+        coords = []
+        for atom_from_resid in residue.get_atoms():
+            coords.append(atom_from_resid.get_coords())
+        coords_arr = np.array(coords,dtype=float)
+        dist = scipy.spatial.distance.cdist(ref_coords,coords_arr)
+        if np.amin(dist) <= r:
+            result.append(True)
+        else:
+            result.append(False)
+    return result
+
+
+def residues_within_r_from_atom_list(residue_list, atom_list, r):
+    """ 
+    checks if any atom of residue from a residue_list 
+    lies within r (d(at@res --- atom) <= r) of any atom from atom_list;
+    Input:
+        residue_list - a list of residue objects
+        atom_list - a list of atom objects
+        r - radius, float 
+    Returns: 
+        a boolean list of length len(residue_list)
+    """
+    res_list_length = len(residue_list)
+    if len(atom_list) == 0:
+        result = [True for i in range(res_list_length)]
+        return result
+    result = [False for i in range(res_list_length)]
+    for atom_ref in atom_list:
+        index_table = []
+        temp_residue_list = []
+        for i in range(res_list_length):
+            if result[i] == False:
+                temp_residue_list.append(residue_list[i])
+                index_table.append(i)
+        temp_result = residues_within_r_from_atom(temp_residue_list, atom_ref, r)
+        for i in range(len(temp_residue_list)):
+            result[index_table[i]] = (result[index_table[i]] or temp_result[i])
+    return result
+ 
+def nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer):
+    if (n_atom_in_H_layer > 0) and (n_atom_in_M_layer > 0) and (n_atom_in_L_layer > 0):
+        nlayers = 3
+    elif (n_atom_in_H_layer == 0) and (n_atom_in_M_layer == 0):
+        nlayers = 1
+    elif (n_atom_in_M_layer == 0) and (n_atom_in_L_layer == 0):
+        nlayers = 1
+    elif (n_atom_in_H_layer == 0) and (n_atom_in_L_layer == 0):
+        nlayers = 1
+    elif (n_atom_in_H_layer == 0) and (n_atom_in_L_layer == 0) and (n_atom_in_M_layer == 0):
+        nlayers = 0
+    else:
+        nlayers = 2
+    return nlayers
+    
 def adjust_HLA_coords(H_lk_atm: link_atom, qm_atom: atom, bl_sf=0.723886) -> None:
     """
     calculates and sets coordinates of the H link atom using the provided scaling factor
