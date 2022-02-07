@@ -3,7 +3,7 @@ authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
 last update: 4 Feb 2022
 """
-import re, math, scipy, string
+import re, math, scipy, string, scipy.spatial
 import numpy as np
 from typing import Tuple, List
 
@@ -15,7 +15,7 @@ vdw_radii = {\
 'Sc':2.11, 'Ti':1.9, 'V':1.85, 'Cr':1.8, 'Mn':1.75,'Fe':1.7, 'Ni':1.63, 'Cu':1.40, 'Zn':1.39,\
 'Mo':1.85,'Pd':1.63,'Ag':1.72,'Cd':1.58,\
 'W':1.9, 'Pt':1.75, 'Au':1.66, 'Hg':1.55} # values (where available) taken from: https://en.wikipedia.org/wiki/Van_der_Waals_radius
-# for elements with no available data, the radius was guessed.
+# for elements with no available data, the radius was guessed. - improve it - take it from UFF
 
 
 #######################
@@ -50,7 +50,7 @@ class point_charge:
 class atom:
     def __init__(self, index, element, at_charge, coords, at_type=None, frozen=None, oniom_layer='L'):
         self.coords = coords
-        self.index = index
+        self.index = index # 0-based (to be consistent with vmd index)
         self.new_index = None
         self.element = element  # nazwa atomu
         self.at_type = at_type
@@ -191,6 +191,58 @@ class link_atom(atom):
         self.mm_element = mm_element
 
 
+class residue:
+    def __init__(self, label, index):
+        self.label = label
+        self.index = index # zero based - to be consistent with vmd
+        self.new_index = None
+        self.in_protein = False
+        self.atoms = []
+        self.main_chain_atoms = []
+        self.trim = False
+        self.chain = ''
+
+    def get_label(self):
+        return self.label        
+    def get_index(self):
+        return self.index    
+    def get_new_index(self):
+        return self.new_index    
+    def get_in_protein(self):
+        return self.in_protein
+    def get_atoms(self):
+        return self.atoms
+    def get_main_chain_atoms(self):
+        return self.main_chain_atoms
+    def get_side_chain_atoms(self):
+        sc_atoms = self.atoms.copy()
+        for at in self.main_chain_atoms:
+            sc_atoms.remove(at)
+        return sc_atoms   
+    def next_atom(self):
+        for atom in self.atoms:
+            yield atom
+    def get_trim(self):
+        return self.trim
+    def get_chain(self):
+        return self.chain
+    
+    def set_in_protein(self,in_protein):
+        self.in_protein = in_protein
+    def add_atom(self,atom):
+        self.atoms.append(atom)
+        if atom.get_tree_chain_classification() == 'M':
+            self.main_chain_atoms.append(atom)
+    def add_main_chain_atom(self,atom):
+            self.main_chain_atoms.append(atom)
+    def set_trim(self,trim):
+        self.trim = trim
+    def set_new_index(self,new_index):
+        self.new_index = new_index    
+    def set_chain(self,chain_id):
+        self.chain = chain_id
+        
+        
 #########################
 ####  Read functions ####
 #########################
@@ -206,7 +258,8 @@ def find_in_file(file):
            "connectList": -1,
            "header": 0,
            "parm": -1,
-           "redundant": -1
+           "redundant": -1,
+           "p_charges": -1
            }   
     
     empty_line = 0  # count empty line
@@ -237,6 +290,14 @@ def find_in_file(file):
             empty_line += 1
         elif empty_line == 9 and is_redundant_exists:
             offsets["parm"] = previousLine
+            empty_line += 1
+        elif empty_line == 9:
+            if re.match(r'^[0-9]+', line):
+                offsets["p_charges"] = previousLine
+            empty_line += 1
+        elif empty_line == 11 and is_redundant_exists:
+            if re.match(r'^[0-9]+', line):
+                offsets["p_charges"] = previousLine
             empty_line += 1
 
         if line == '\n':
@@ -350,7 +411,8 @@ def read_atom_inf(file, offset) -> tuple:
     atomObject_list = []
     linkObject_list = []
     oniom_layer_H_and_LAH_index_list = []
-    at_index = 0
+#    at_index = 0 # 1-based
+    at_index = -1 # 0-based
     while True:
         line = file.readline()
         if line == '\n':
@@ -400,8 +462,9 @@ def read_atom_inf(file, offset) -> tuple:
 def read_connect_list(file, offset) -> dict:    
     """
     create a dictionary where key is atom and value is a list of atoms(ints) connected to it
+    keys are 0-based
     :return:
-    dict = { atom(int 1-based) : [connected_atom_1, connected_atom_2, ...],}
+    dict = { atom(int 0-based) : [connected_atom_1, connected_atom_2, ...],}
     """
     file.seek(offset)
     connect_dict = {}
@@ -413,18 +476,39 @@ def read_connect_list(file, offset) -> dict:
         line = [int(float(elem)) for elem in line]  # convert from str to int - int(float(i)) because int(i) cause
         # problem when has to convert 1.0
 
-        if line[0] not in connect_dict:
-            connect_dict[line[0]] = []
+        if (line[0]-1) not in connect_dict:
+            connect_dict[(line[0]-1)] = []
 
         for i in line[1::2]:
-            connect_dict[line[0]].append(i)
-            if i not in connect_dict:
-                connect_dict[i] = []
-            connect_dict[i].append(line[0])
+            connect_dict[(line[0]-1)].append(i-1)
+            if i-1 not in connect_dict:
+                connect_dict[i-1] = []
+            connect_dict[i-1].append((line[0]-1))
 
     return connect_dict
 
 
+def read_p_charges(file, offset):
+    file.seek(offset)
+    p_charges = []
+    
+    while True:
+        line = file.readline().split()
+        if not line:
+            break
+        x = eval(line[0])
+        y = eval(line[1])
+        z = eval(line[2])
+        coords = [x, y, z]
+        charge = eval(line[3])
+        
+        p_ch = point_charge(charge, coords)
+        p_charges.append(p_ch)
+    
+    return p_charges
+    
+    
+    
 def filter_line(line: str) -> list:
     """
     make from line(str) a list that contains only necessary information about atoms\n
@@ -814,6 +898,85 @@ def input_read_freeze(file, residues, atoms):
     return frozen 
 
 
+def read_pdb_file(file):
+    """
+    reads content of the pdb file (in format as produced by prm2gaussian or oniom_inp_mod)
+    returns a list of residue objects and a list of atom objects
+
+    Parameters
+    ----------
+    file : file object
+        file object with pdb file to be read.
+
+    Returns
+    -------
+    residue_list : LIST
+        a list of residue objects (their index runs from 0).
+    atom_list : LIST
+        a list of atom objects (their index runs from 0)
+    """
+    residue_list = []
+    atom_list = []
+    new_resid = None
+    prev_resid_number = -1
+    file.seek(0)
+    while True:
+        line = file.readline()
+        if not line:
+            if new_resid:
+                if new_resid not in residue_list:
+                    residue_list.append(new_resid)
+            break
+        line_split = line.split()
+        if line_split[0] == 'ATOM':
+            at_LAH = False
+            at_number = eval(line_split[1])
+            at_name = line_split[2]
+            resid_name = line_split[3]
+            resid_number = eval(line_split[4])
+            x = eval(line_split[5])
+            y = eval(line_split[6])
+            z = eval(line_split[7])
+            at_coord = [x, y, z]
+            at_frozen = int(eval(line_split[8])) - 1 
+            layer_info = int(eval(line_split[9]))
+            if layer_info == 0:
+                at_layer = 'L'
+            elif layer_info == 1:
+                at_layer = 'L'
+                at_LAH = True
+            elif layer_info == 2:
+                at_layer = 'H'
+            elif layer_info == 3:
+                at_layer = 'M'
+                at_LAH = True
+            elif layer_info == 4:
+                at_layer = 'M' 
+            ele = line_split[10]
+            
+            at = atom(at_number - 1, ele, 0.0, at_coord, None, at_frozen, at_layer)
+            at.set_name(at_name)
+            at.set_LAH(at_LAH)
+            
+            atom_list.append(at)
+            
+            if resid_number != prev_resid_number:
+                if new_resid:
+                    residue_list.append(new_resid)
+                new_resid = residue(resid_name, resid_number - 1)                    
+                new_resid.add_atom(at)
+                prev_resid_number = resid_number
+            else:
+                new_resid.add_atom(at)
+                    
+        elif line_split[0] == 'TER':
+            pass
+        elif line_split[0] == 'END':
+            pass
+        
+    return residue_list, atom_list            
+
+    
 #########################
 #### Write functions ####
 #########################
@@ -1025,7 +1188,7 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
                     link_element = link.get_element()
                     link_type = link.at_type
                     link_charge = link.get_at_charge()
-                    link_bonded_to = link.get_bonded_to()
+                    link_bonded_to = link.get_bonded_to() + 1 # because connec list is 0-based
                     file.write('  ' + link_element + '-' + link_type + '-' + '{:02.6f}'.format(link_charge) + \
                                   '\t' + str(link_bonded_to))
                     break
@@ -1034,14 +1197,14 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
 
 def write_connect(file, connect) -> None:
     """
-    print into a file the content of the connect
-    :param connect - a dictionary with connectivity information
+    print into a file the content of the connectivity list
+    :param connect - a dictionary with connectivity information(0-based)
     file - file object (to write to)
     :return:
     """
     for key, value in sorted(connect.items()):
         value = [i for i in value if i > key]  # remove information about redundant connection
-        file.write(" " + str(key) + " " + " ".join(str(item) + " 1.0" for item in value) + ' \n')
+        file.write(" " + str(key+1) + " " + " ".join(str(item+1) + " 1.0" for item in value) + ' \n')
 
         
 def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
@@ -1110,7 +1273,8 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         file.write('\n{}'.format(params))
         file.write("\n")
 
-    if len(p_charges) > 0:
+    if p_charges:
+#    if len(p_charges) > 0:
         for p_q in p_charges:
             file.write(p_q.get_string())
         file.write('\n')
@@ -1142,12 +1306,16 @@ def write_pdb_file(residue_list, file_name, write_Q=False):
             at_number = at_number.rjust(5, ' ')
             at_layer = atom.get_oniom_layer()
             at_LAH = atom.get_LAH()
-            if at_LAH:
+            if at_LAH and at_layer == 'L':
                at_beta = 1.0 
+            elif at_layer == 'L': 
+                at_beta = 0.0               
             elif at_layer == 'H':
                 at_beta = 2.0
-            else: 
-                at_beta = 0.0
+            elif at_LAH and at_layer == 'M':
+                at_beta = 3.0
+            elif at_layer == 'M':
+                at_beta = 4.0                
             at_frozen = atom.get_frozen()    
             if at_frozen == 0:
                 at_occupancy = 1.0
@@ -1718,7 +1886,31 @@ def extract_chemical_composition(atoms_list):
     
     return H_layer_composition, M_layer_composition, L_layer_composition
     
-    
+
+def mod_layer(residues, atoms, res_ix, schain_ix, ix, layer):  
+    for i in res_ix:
+        res = residues[i]
+        for at in res.get_atoms():
+            at.set_oniom_layer(layer)
+
+    for i in schain_ix:
+        res = residues[i]
+        for at in res.get_side_chain_atoms():
+            at.set_oniom_layer(layer)   
+            
+    for i in ix:
+        atoms[i].set_oniom_layer(layer)
+
+
+def lk_atoms_mod(link_at_list, atom_list, layer):
+    for at in link_at_list:
+        con_list = at.get_connect_list()
+        for con_ix in con_list: # find QM atom bonded to a given link atom
+            con_at = atom_list[con_ix]
+            if con_at.get_oniom_layer() == layer:
+                at.set_bonded_to(con_ix)
+                adjust_HLA_coords(at, con_at)
+                break
     
 # OLD:
     

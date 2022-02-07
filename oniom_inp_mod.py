@@ -36,12 +36,15 @@ from copy import deepcopy
 
 
 from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin
-from oniom_inp_mod_aux import read_atom_inf, read_connect_list, write_xyz_file
+from oniom_inp_mod_aux import read_atom_inf, read_connect_list, read_p_charges, write_xyz_file
 from oniom_inp_mod_aux import read_xyz_file, read_qout_file, count_atoms_in_layers
 from oniom_inp_mod_aux import write_oniom_inp_file, write_qm_input, charge_change
 from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition
 from oniom_inp_mod_aux import vdw_radii, charge_summary, report_charges, nlayers_ONIOM
-from oniom_inp_mod_aux import read_single_string, read_single_number
+from oniom_inp_mod_aux import read_single_string, read_single_number, read_pdb_file
+from oniom_inp_mod_aux import read_rsi_index, input_read_link_atoms, input_read_freeze
+from oniom_inp_mod_aux import residue, atom, main_side_chain, mod_layer, write_pdb_file
+from oniom_inp_mod_aux import lk_atoms_mod
 
 
 # Important variables (switches):
@@ -78,11 +81,15 @@ from oniom_inp_mod_aux import read_single_string, read_single_number
 # whole_system_xyz_file_to_read = 'input_examples/h6h-oxo+succinate+water_hyo_17_07_b_moved.xyz'
 # qm_system_xyz_file_to_read = ''
 
-oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-output_fname = 'input_examples/test_out'
-add_inp_fname = 'input_examples/omod.inp'
-switch = 'omod'
+# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
+# output_fname = 'input_examples/test_out'
+# add_inp_fname = 'input_examples/omod.inp'
+# switch = 'omod'
 
+oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
+output_fname = 'input_examples/test_out'
+add_inp_fname = 'input_examples/omod_no_freeze.inp'
+switch = 'omod'
 
 ### ---------------------------------------------------------------------- ###
 ### Seting the file names                                                  ###
@@ -143,6 +150,11 @@ if inp_offsets["parm"] > 0:
 else:
     print("FF parameters section not found\n")
 
+inp_p_charges = None
+if inp_offsets["p_charges"] > 0:
+    inp_p_charges = read_p_charges(oniom_inp_f, inp_offsets["p_charges"])
+    print("Point charge section found\n")
+    
 oniom_inp_f.close()
 
 
@@ -396,6 +408,14 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
 ### -------------------------------------------------------------------------- ###
 ### CASE: read separate input file (to modify the ONIOM system partitioning)   ###
 if switch == "omod":
+    mod_atoms_list = deepcopy(inp_atoms_list)
+
+# set connectivity to atoms based on connectivity list read from the ONIOM input
+    for at in mod_atoms_list:
+        at_ix = at.get_index()
+        connect = inp_connect[at_ix]
+        at.set_connect_list(connect)
+    
     input_f = open(add_inp_fname, 'r')
     
     pdb_file_name = read_single_string(input_f, "%pdb_f_name")
@@ -405,13 +425,98 @@ if switch == "omod":
     mM = read_single_number(input_f, "%M_multip")
     qL = read_single_number(input_f, "%L_charge")
     mL = read_single_number(input_f, "%L_multip")
-    
 
+#   read pdb and create residue list
+    pdb_f = open(pdb_file_name, 'r')
+    res_list_from_pdb, at_list_from_pdb = read_pdb_file(pdb_f)
+    pdb_f.close()
+
+    if len(mod_atoms_list) != len(at_list_from_pdb):
+        input_f.close()
+        print("\n Number of atoms in the inp and pdb files do not match\n")
+        print("# at in the ONIOM input: ", str(len(mod_atoms_list)))
+        print("\n# at in the PDB file: ", str(len(at_list_from_pdb)))
+        exit(1)
+
+#   take info about residues from PDB and asscribe atoms read from ONIOM input
+#   into residues (the order of atoms in the two input files must be the same !)
+    residues = []
+    i = 0
+    for pdb_res in res_list_from_pdb:
+        label = pdb_res.get_label()
+        index = pdb_res.get_index()
+        new_res = residue(label, index)
+        n_atms = len(pdb_res.get_atoms())
+        for j in range(n_atms):
+            new_res.add_atom(mod_atoms_list[i+j])
+        residues.append(new_res)
+        i += n_atms
+
+# process residues to set in_mainchain atribute of atoms (protein main chain)
+# and populate main_chain_atoms atribute of residues    
+    for res in residues:
+        main_side_chain(res)
+        res.set_new_index(res.get_index())
+
+# erase all info about ONIOM layers read from the ONIOM input file (all atoms -> 'L')
+    for at in mod_atoms_list:
+        at.set_oniom_layer('L')
+        at.set_new_index(at.get_index())
+
+# ascribe atom names from info read from the pdb file:
+    for at, pdb_at in zip(mod_atoms_list, at_list_from_pdb):
+        at.set_name(pdb_at.get_name())
+
+#   read info about H_layer and ascribe it to atoms (and residues)
+    Hl_res_ix, Hl_schain_ix, Hl_ix = read_rsi_index(input_f, "%H_layer", "%end_H_layer")
+    mod_layer(residues, mod_atoms_list, Hl_res_ix, Hl_schain_ix, Hl_ix, 'H')
+    
+#   read info about M_layer
+    Ml_res_ix, Ml_schain_ix, Ml_ix = read_rsi_index(input_f, "%M_layer", "%end_M_layer")
+    mod_layer(residues, mod_atoms_list, Ml_res_ix, Ml_schain_ix, Ml_ix, 'M')
+
+#   read info about H_L_link_atoms and generate a list of link_atom objects
+#   H-link atom manipulations (HLA position, bonded_to)
+    new_HL_lk_atoms = input_read_link_atoms(input_f, mod_atoms_list, border="HL")
+    lk_atoms_mod(new_HL_lk_atoms, mod_atoms_list, 'H')
+    
+#   read info about H_M_link_atoms
+#   H-link atom manipulations (HLA position, bonded_to)
+    new_HM_lk_atoms = input_read_link_atoms(input_f, mod_atoms_list, border="HM")
+    lk_atoms_mod(new_HM_lk_atoms, mod_atoms_list, 'H')
+
+#   read info about M_L_link_atoms
+#   H-link atom manipulations (HLA position, bonded_to)
+    new_ML_lk_atoms = input_read_link_atoms(input_f, mod_atoms_list, border="ML")
+    lk_atoms_mod(new_ML_lk_atoms, mod_atoms_list, 'M')
+
+#   read info about NEW freeze_ref / r_free
+    new_freeze = input_read_freeze(input_f, residues, mod_atoms_list)
     
     input_f.close()
 
-#   read pdb and create residue list
 
+    link_atoms_list = new_HL_lk_atoms + new_HM_lk_atoms + new_ML_lk_atoms   
+#   check if all cut bonds are saturated with link atoms
+    pass
+
+
+    n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
+        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)
+    nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
+    str_layers = ''
+    if n_atom_in_L_layer > 0:
+        str_layers += 'L, '
+    if n_atom_in_M_layer > 0:
+        str_layers += 'M, '
+    if n_atom_in_H_layer > 0:
+        str_layers += 'H '        
+    print("\nThe ONIOM system to be written has: ", nlayers, " layers: ", str_layers)
+    
+#   check charges in the ONIOM sysstem and subsystems
+    pass
+
+     
     mod_charge_and_spin = deepcopy(inp_charge_and_spin)
     if qH:
         mod_charge_and_spin["ChrgModelHigh"] = qH
@@ -432,3 +537,14 @@ if switch == "omod":
     elif mL:
         mod_charge_and_spin["SpinRealLow"] = mL
 
+#   write ouput files
+    comment = inp_comment + "modifications read from: " + add_inp_fname + "\n"
+    out_file = open(output_fname, 'a')
+    write_oniom_inp_file(out_file, inp_header, comment, mod_charge_and_spin, nlayers,\
+                         mod_atoms_list, link_atoms_list, inp_connect, inp_redundant, inp_params, inp_p_charges)
+
+    out_file.close()
+
+    pdb_out_fname = output_fname[0:-3] + 'MODEL.pdb'
+    write_pdb_file(residues, pdb_out_fname, write_Q=False)    
+# TER maja byc wypisywane po kazdej molekule 
