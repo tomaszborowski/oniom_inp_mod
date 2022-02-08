@@ -1,21 +1,21 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 4 Feb 2022
+last update: 8 Feb 2022
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
-from typing import Tuple, List
+#from typing import Tuple, List
 
 # CONSTANTS
 letters = string.ascii_uppercase
 digits = string.digits
 
 vdw_radii = {\
-'Sc':2.11, 'Ti':1.9, 'V':1.85, 'Cr':1.8, 'Mn':1.75,'Fe':1.7, 'Ni':1.63, 'Cu':1.40, 'Zn':1.39,\
-'Mo':1.85,'Pd':1.63,'Ag':1.72,'Cd':1.58,\
-'W':1.9, 'Pt':1.75, 'Au':1.66, 'Hg':1.55} # values (where available) taken from: https://en.wikipedia.org/wiki/Van_der_Waals_radius
-# for elements with no available data, the radius was guessed. - improve it - take it from UFF
+'Sc':1.648, 'Ti':1.588, 'V':1.572, 'Cr':1.512, 'Mn':1.481, 'Fe':1.456, 'Co':1.436, 'Ni':1.417, 'Cu':1.748, 'Zn':1.382,\
+'Y':1.673, 'Zr':1.562, 'Nb':1.583, 'Mo':1.526,'Tc':1.499, 'Ru':1.482, 'Rh':1.465, 'Pd':1.450, 'Ag':1.574, 'Cd':1.424,\
+'La':1.761,'Hf':1.571, 'Ta':1.585, 'W':1.535, 'Re':1.477, 'Os':1.560, 'Ir':1.420, 'Pt':1.377, 'Au':1.647, 'Hg':1.353} 
+# values taken from the UFF force field: DOI: 10.1021/ja00051a040 (Table 1: nonbond distance/2.)
 
 
 #######################
@@ -37,8 +37,11 @@ class point_charge:
         return self.charge
     
     def get_string(self):
-        return  str(self.coords[0]) + " " + str(self.coords[1])  + " " +\
-            str(self.coords[2]) + " " + str(self.charge) + "\n"
+        x = str( round(self.coords[0], 6) )
+        y = str( round(self.coords[1], 6) )
+        z = str( round(self.coords[2], 6) )
+        q = str( round(self.charge, 8) )
+        return  x + " " + y + " " + z + " " + q + "\n"
     
     def set_charge(self, q):
         self.charge = q
@@ -50,9 +53,9 @@ class point_charge:
 class atom:
     def __init__(self, index, element, at_charge, coords, at_type=None, frozen=None, oniom_layer='L'):
         self.coords = coords
-        self.index = index # 0-based (to be consistent with vmd index)
+        self.index = index # 0-based (to be consistent with vmd and python indexing)
         self.new_index = None
-        self.element = element  # nazwa atomu
+        self.element = element  # element symbol
         self.at_type = at_type
         self.new_at_type = None
         self.at_charge = at_charge
@@ -194,11 +197,11 @@ class link_atom(atom):
 class residue:
     def __init__(self, label, index):
         self.label = label
-        self.index = index # zero based - to be consistent with vmd
+        self.index = index # zero based - to be consistent with vmd and python
         self.new_index = None
         self.in_protein = False
-        self.atoms = []
-        self.main_chain_atoms = []
+        self.atoms = [] # list of atom objects
+        self.main_chain_atoms = [] # list of atom objects
         self.trim = False
         self.chain = ''
 
@@ -241,6 +244,33 @@ class residue:
         self.new_index = new_index    
     def set_chain(self,chain_id):
         self.chain = chain_id
+
+        
+class peptide:
+    def __init__(self, label, index):
+        self.label = label
+        self.index = index  # 0-based     
+        self.is_peptide = False
+        self.residues = [] # list of residue objects
+
+    def get_label(self):
+        return self.label        
+    def get_index(self):
+        return self.index 
+    def get_is_peptide(self):
+        return self.is_peptide
+    def get_residues(self):
+        return self.residues
+    def get_last_residue(self):
+        if len(self.residues)>0:
+            return self.residues[-1]
+        else:
+            return None
+    def next_residue(self):
+        for residue in self.residues:
+            yield residue                         
+    def add_residue(self,residue):
+        self.residues.append(residue)   
         
         
 #########################
@@ -248,7 +278,8 @@ class residue:
 #########################
 def find_in_file(file):
     """
-    create a dictionary with pointers to specific sections in the input file in order to have a easy access to them
+    create a dictionary with pointers to specific sections in the input file 
+    in order to have a easy access to them
     :input: file - a file object
     :returns: offsets - a dictionary
     """
@@ -315,7 +346,6 @@ def read_Chk(header):
     :return:
     list where [0] is file name and [1] is file extension
     """
-
     try:
         find_chk = re.search(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', header)
         chk_core = find_chk.group(1)
@@ -386,7 +416,6 @@ def read_charge_spin(file, offset) -> dict:
 
 
 def read_atom_inf(file, offset) -> tuple:
-#def read_atom_inf() -> tuple:
     """
     create two list\n
     *atomObject_list:\n
@@ -406,13 +435,11 @@ def read_atom_inf(file, offset) -> tuple:
     :return:
     list where [0] is atom object and [1] is atom link object
     """
-#    file.seek(offsets["atomInfo"])
     file.seek(offset)
     atomObject_list = []
     linkObject_list = []
     oniom_layer_H_and_LAH_index_list = []
-#    at_index = 0 # 1-based
-    at_index = -1 # 0-based
+    at_index = -1 # 0-based index
     while True:
         line = file.readline()
         if line == '\n':
@@ -489,6 +516,23 @@ def read_connect_list(file, offset) -> dict:
 
 
 def read_p_charges(file, offset):
+    """
+    read point charge section from the Gaussian input file
+
+    Parameters
+    ----------
+    file : file objects
+        gaussian input file.
+    offset : INT
+        position in the file (as returned by .tell()) where
+        the point charge section begins.
+
+    Returns
+    -------
+    p_charges : LIST
+        a list of point_charge objects.
+
+    """
     file.seek(offset)
     p_charges = []
     
@@ -508,7 +552,6 @@ def read_p_charges(file, offset):
     return p_charges
     
     
-    
 def filter_line(line: str) -> list:
     """
     make from line(str) a list that contains only necessary information about atoms\n
@@ -517,7 +560,7 @@ def filter_line(line: str) -> list:
     after exec of this function\n
     line = ['N', 'N3', '-0.1592', '13.413952', '49.941155', '40.112556', 'L']\n
     :param line: line from file that contains information about atoms:
-    :return: a list where every list[index] contains a different information about ato
+    :return: a list where every list[index] contains a different information about atom
     """
     for i in range(1, len(line)):
         if line[i] == '-' and not re.match(r'\s+', line[i - 1]):
@@ -622,7 +665,7 @@ def read_rsi_index(file, flag_line, end_line):
     ---
     file : file object
     flag_line : string
-    end_line : strong
+    end_line : string
     ---
     Returns lists:
     residue_index, sidechain_index and index_index
@@ -630,7 +673,6 @@ def read_rsi_index(file, flag_line, end_line):
     residue_index = []
     sidechain_index = []
     index_index = []
-    # w pliku file wyszukaj linii zawierajacej flag_line
     file.seek(0)
     while True:
         a = file.readline()
@@ -638,8 +680,6 @@ def read_rsi_index(file, flag_line, end_line):
             break
         match_flag=re.search(flag_line,a)
         if match_flag:            
-            # wczytuj kolejne linie i sprawdzaj czy zawieraja "sidechain",
-            # "residue" lub "index"
             while True:
                 a = file.readline()
                 if not a:
@@ -677,13 +717,12 @@ def read_rsi_names(file, flag_line, end_line):
     ---
     file : file object
     flag_line : string
-    end_line : strong
+    end_line : string
     ---
     Returns a list:
     residue_names 
     """
     residue_names = []
-    # w pliku file wyszukaj linii zawierajacej flag_line
     file.seek(0)
     while True:
         a = file.readline()
@@ -691,7 +730,6 @@ def read_rsi_names(file, flag_line, end_line):
             break
         match_flag=re.search(flag_line,a)
         if match_flag:            
-            # wczytuj kolejne linie i sprawdzaj czy zawieraja "resname"
             while True:
                 a = file.readline()
                 if not a:
@@ -722,8 +760,7 @@ def input_read_qm_part(file, residues, atoms, layer="H"):
     atoms : a list with atom obects for the system
     """   
     assert (type(residues) == list), "residues must be a list of residue objects"
-    assert (type(atoms) == list), "atoms must be a list of atom objects"
-    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    assert (type(atoms) == list), "atoms must be a list of atom objects"     
     qm_part = []
     if layer == "H":
         start_flag = "%H_layer"
@@ -780,13 +817,11 @@ def input_read_link_atoms(file, atoms, border="HL"):
     atoms : a list with atom obects for the system
     border : string, "HL", "HM" or "ML" - at which interface the link atoms are
     """   
-    assert (type(atoms) == list), "atoms must be a list of atom objects"
-    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    assert (type(atoms) == list), "atoms must be a list of atom objects"     
     MM_link_atoms = []
     HLA_types = []
     link_atoms = []
     index_index = []
-    # w pliku file wyszukaj linii zawierajacej "%link_atoms"
     if border == "HL":
         flag_line = "%H_L_link_atoms"
         end_line = "%end_H_L_link_atoms"
@@ -809,7 +844,6 @@ def input_read_link_atoms(file, atoms, border="HL"):
             break
         match_flag=re.search(flag_line,a)
         if match_flag:            
-            # wczytuj kolejne linie i sprawdzaj czy zawieraja "index"
             while True:
                 a = file.readline()
                 if not a:
@@ -855,8 +889,7 @@ def input_read_freeze(file, residues, atoms):
     atoms : a list with atom objects for the system
     """   
     assert (type(residues) == list), "residues must be a list of residue objects"
-    assert (type(atoms) == list), "atoms must be a list of atom objects"
-    # inicjalizacja pustej listy (na obiekty typu atom), ktora bedzie zwracana     
+    assert (type(atoms) == list), "atoms must be a list of atom objects"     
     frozen = []
     freeze_reference = []
     r_free = read_single_number(file,"%r_free")
@@ -982,7 +1015,7 @@ def read_pdb_file(file):
 #########################
 def write_charge_spin(charge_spin, nlayers):
     """
-    print into a file the content of the charge_spin
+    print into a file (Gaussian input) the content of the charge_spin
     :param charge_spin: dictionary with charge and spin information
     nlayers - intiger, number of layers (2 or 3)
     :return: line - string
@@ -1003,24 +1036,23 @@ def write_charge_spin(charge_spin, nlayers):
     return line
                               
 
-def write_change(atom_list: list, atom_change: tuple) -> None:
-    """
-    write the modifications of charges and coords into atom_change
-    :param atom_list:
-    :param atom_change:
-    :return:
-    """
-
-    for atom in atom_change[0]:
-        if atom.get_at_charge() != atom_list[atom.get_index()-1][3]:
-            atom.set_at_charge(atom_list[atom.get_index()-1][3])
-
-        coords = atom.get_coords()
-        if coords[0] != atom_list[atom.get_index()-1][0]:
-            atom.set_coords([atom_list[atom.get_index()-1][0], atom_list[atom.get_index()-1][1], atom_list[atom.get_index()-1][2]])
-
-
 def make_xyz_line(element, coords):
+    """
+    generate an Element-coordinates line for Gaussian QM input file
+
+    Parameters
+    ----------
+    element : STRING
+        symbol of chemical element.
+    coords : LIST
+        a list of 3 numbers - coordinates of the atom.
+
+    Returns
+    -------
+    new_line : STRING
+        "El x y z \n" line.
+
+    """
     new_line = element + '\t\t' + '{:06.6f}'.format(coords[0]) + '     ' + \
         '{:06.6f}'.format(coords[1]) + '     ' + \
         '{:06.6f}'.format(coords[2]) + "\n"
@@ -1029,9 +1061,10 @@ def make_xyz_line(element, coords):
 
 def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
     """
+    writes xyz file for a specified ONIOM (sub)system
     Parameters
     ----------
-    output_f : FILE
+    output_f : FILE objects
         file to which xyz content is written.
     atoms_list : LIST
         list of atom objects from which information on element and coordinates 
@@ -1039,7 +1072,8 @@ def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
     link_atom_list : LIST
         list of link atom objects
     layer : STRING
-        "HML", "HM" or "H" - all, H- and M-layers or H-layer (plus link atoms)
+        "HML", "HM" or "H" - all, H- and M-layers or H-layer (plus link atoms),
+        which corresponds to "Real", "Intermediate" and "Model" ONIOM systems
 
     Returns
     -------
@@ -1167,7 +1201,7 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
     file - file object (to write to)
     atom_list: list of atom objects
     link_atom_list: list of link atom objects        
-    :return:
+    :return: None
     """
     for atom in atom_list:
         element = atom.get_element()
@@ -1198,9 +1232,9 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
 def write_connect(file, connect) -> None:
     """
     print into a file the content of the connectivity list
-    :param connect - a dictionary with connectivity information(0-based)
+    :param connect - a dictionary with connectivity information (0-based)
     file - file object (to write to)
-    :return:
+    :return: None
     """
     for key, value in sorted(connect.items()):
         value = [i for i in value if i > key]  # remove information about redundant connection
@@ -1219,9 +1253,9 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
     header : STRING
         contains the header section of the input file.
     comment : STRING
-        DESCRIPTION.
+        comment line(s) in the Gaussian input.
     charge_and_spin : DICTIONARY
-        DESCRIPTION.
+        Dictionary with charge and multiplicity info.
     nlayers : INT
         number of layers: 2 or 3.
     atoms_list : LIST
@@ -1274,7 +1308,6 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         file.write("\n")
 
     if p_charges:
-#    if len(p_charges) > 0:
         for p_q in p_charges:
             file.write(p_q.get_string())
         file.write('\n')
@@ -1358,6 +1391,25 @@ def NC_in_main_chain(residue):
         return False
 
 
+def is_peptide_bond2(residue_1,residue_2):
+    """looks for O-C-N fragment between the two residues
+    returns True if found, False otherwise
+    assumes N is the first atom in a residue and CO are the last two in a residue
+    in a peptide bond"""
+    res1_atoms = residue_1.get_atoms()
+    res2_atoms = residue_2.get_atoms()
+    if len(res1_atoms) > 1 and len(res2_atoms) > 0:
+        if res1_atoms[-2].get_element() == 'C' and res1_atoms[-1].get_element() == 'O'\
+        and res2_atoms[0].get_element() == 'N'\
+        and res1_atoms[-1].get_index() in res1_atoms[-2].get_connect_list()\
+        and res2_atoms[0].get_index() in res1_atoms[-2].get_connect_list():
+            return True
+        else:
+            return False
+    else:
+        return False 
+    
+    
 def N_CO_in_residue(residue):
     """ checks is the residue contains N and CO as a first and two last atoms
     if yes, returns True, otherwise returns False"""
@@ -1415,9 +1467,9 @@ def atom_to_link_atom(at_ins, amb_type, chrg = 0.000001, layer = 'H'):
     """
     new_link_atom = link_atom( at_ins.get_coords(), at_ins.get_index(), 'H' )
     new_link_atom.set_connect_list( at_ins.get_connect_list() )
-    new_link_atom.set_oniom_layer(layer)
-    new_link_atom.set_type(amb_type)
-    new_link_atom.set_at_charge(chrg)
+    new_link_atom.set_oniom_layer( layer )
+    new_link_atom.set_type( amb_type )
+    new_link_atom.set_at_charge( chrg )
     new_link_atom.set_mm_element( at_ins.get_element() )
     return new_link_atom 
 
@@ -1503,8 +1555,28 @@ def residues_within_r_from_atom_list(residue_list, atom_list, r):
         for i in range(len(temp_residue_list)):
             result[index_table[i]] = (result[index_table[i]] or temp_result[i])
     return result
- 
+
+    
 def nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer):
+    """
+    based on number of atoms in H, M and L layers calculates how many layers 
+    are in the ONIOM system
+
+    Parameters
+    ----------
+    n_atom_in_H_layer : INT
+        # of atoms in the H-layer.
+    n_atom_in_M_layer : INT
+        # of atoms in the M-layer.
+    n_atom_in_L_layer : INT
+        # of atoms in the L-layer.
+
+    Returns
+    -------
+    nlayers : INT
+        # of layers.
+
+    """
     if (n_atom_in_H_layer > 0) and (n_atom_in_M_layer > 0) and (n_atom_in_L_layer > 0):
         nlayers = 3
     elif (n_atom_in_H_layer == 0) and (n_atom_in_M_layer == 0):
@@ -1519,6 +1591,7 @@ def nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer):
         nlayers = 2
     return nlayers
     
+
 def adjust_HLA_coords(H_lk_atm: link_atom, qm_atom: atom, bl_sf=0.723886) -> None:
     """
     calculates and sets coordinates of the H link atom using the provided scaling factor
@@ -1537,9 +1610,9 @@ def charge_change(atom_list, link_atom_list, connect_dic, q_model) -> list:
     change atom charge and create a list of off-atom point charges
     :param atom_list: a list of atom objects
     :param link_atom_list: a list of link atom objects
-    :param connect_dic: a dictionary with connectivity info (key: 1-based index, value: a list)
+    :param connect_dic: a dictionary with connectivity info (key: 0-based index, value: a list)
     :param q_model: string, type of charge model: "z1", "z2", "z3", "rc", "rcd" or "cs"
-    :return: a list of off-atoms point charges (may be empty)
+    :return: a list of off-atoms point charges - point_charge objects (may be empty)
     """
 
     off_atm_p_charges = []
@@ -1554,49 +1627,49 @@ def charge_change(atom_list, link_atom_list, connect_dic, q_model) -> list:
             m3_ixs += connect_dic[m2ix]
             m3_ixs.remove(m1_ix)
         
-        m1_orig_q = atom_list[m1_ix - 1].get_at_charge()
-        atom_list[m1_ix - 1].set_at_charge(0.0)
+        m1_orig_q = atom_list[m1_ix].get_at_charge()
+        atom_list[m1_ix].set_at_charge(0.0)
         
         if q_model == "z1":
             pass
         if (q_model == "z2") or (q_model == "z3"):
             for m2ix in m2_ixs:
-                atom_list[m2ix - 1].set_at_charge(0.0)
+                atom_list[m2ix].set_at_charge(0.0)
         if q_model == "z3":
             for m3ix in m3_ixs:
-                atom_list[m3ix - 1].set_at_charge(0.0)
+                atom_list[m3ix].set_at_charge(0.0)
         elif q_model == "rc":
             q = m1_orig_q/(len(m2_ixs))
-            m1_coords = atom_list[m1_ix - 1].get_coords()
+            m1_coords = atom_list[m1_ix].get_coords()
             for m2ix in m2_ixs:
-                m2_coords = atom_list[m2ix - 1].get_coords()
+                m2_coords = atom_list[m2ix].get_coords()
                 pq_coords = half_distance(m1_coords, m2_coords)
                 off_atm_pq = point_charge(q, pq_coords)
                 off_atm_p_charges.append(off_atm_pq)
         elif q_model == "rcd":
             q = m1_orig_q/(len(m2_ixs))
-            m1_coords = atom_list[m1_ix - 1].get_coords()
+            m1_coords = atom_list[m1_ix].get_coords()
             for m2ix in m2_ixs:
-                m2_coords = atom_list[m2ix - 1].get_coords()
+                m2_coords = atom_list[m2ix].get_coords()
                 pq_coords = half_distance(m1_coords, m2_coords)
                 off_atm_pq = point_charge(2*q, pq_coords)
                 off_atm_p_charges.append(off_atm_pq)
-                m2_orig_q = atom_list[m2ix - 1].get_at_charge()
+                m2_orig_q = atom_list[m2ix].get_at_charge()
                 m2_new_q = m2_orig_q - q
-                atom_list[m2ix - 1].set_at_charge(m2_new_q)
+                atom_list[m2ix].set_at_charge(m2_new_q)
         elif q_model == "cs":
             q = m1_orig_q/(len(m2_ixs))
-            m1_coords = atom_list[m1_ix - 1].get_coords()
+            m1_coords = atom_list[m1_ix].get_coords()
             for m2ix in m2_ixs:
-                m2_coords = atom_list[m2ix - 1].get_coords()
+                m2_coords = atom_list[m2ix].get_coords()
                 p1crd, p2crd = cs_q_coords(m1_coords, m2_coords)
                 off_atm_pq_1 = point_charge(-5*q, p1crd)
                 off_atm_p_charges.append(off_atm_pq_1)
                 off_atm_pq_2 = point_charge(5*q, p2crd)
                 off_atm_p_charges.append(off_atm_pq_2)
-                m2_orig_q = atom_list[m2ix - 1].get_at_charge()
+                m2_orig_q = atom_list[m2ix].get_at_charge()
                 m2_new_q = m2_orig_q + q
-                atom_list[m2ix - 1].set_at_charge(m2_new_q)                
+                atom_list[m2ix].set_at_charge(m2_new_q)                
 
     return off_atm_p_charges
 
@@ -1605,7 +1678,7 @@ def half_distance(coords_1, coords_2) -> list:
     """
     calculate coords in half distance between two atoms
     :param coords_1: a list with 3 coordinates (p1)
-    :param coords_1: a list with 3 coordinates (p2)
+    :param coords_2: a list with 3 coordinates (p2)
     :return: a list with coordinates of the middle point between p1 and p2
     """
     cor = [(coords_1[0] + coords_2[0]) / 2, (coords_1[1] + coords_2[1]) / 2, (coords_1[2] + coords_2[2]) / 2]
@@ -1640,12 +1713,12 @@ def cs_q_coords(coords_1, coords_2) -> tuple:
 
 def charge_summary(atom_list: list, link_atom_list: list, point_charge_list: list) -> tuple:
     """
-    calculate sum of atoms' charges
+    calculate sum of atoms' and point_charges' charges
     :param atom_list: a list of atom objects making the whole ONIOM system
     :param link_atom_list: a list of link atom objects
+    :param point_charge_list: a list of point_charge objects
     :return: tuple (All_Q, H_Q, M_Q, L_Q, links_Q, p_charges_total)
     """
-
     All_Q = 0.0
     H_Q = 0.0
     M_Q = 0.0
@@ -1699,44 +1772,16 @@ def report_charges(q_summary):
     print("Total charge of add. point charges = " + str(round(q_summary[5], 5)))
 
 
-def new_coords(fileName_xyz: str, atomObject_list: Tuple[List[atom], List[link_atom], List[int]]):
+def count_atoms_in_layers(atom_obj_list, link_atom_obj_list):
     """
-    change the coords values of all atoms
-    :param fileName_xyz: file that contains new atoms coords
-    :param atomObject_list: list of atoms which coords we want to change (use list which atom_inf function return)
-    :return:
-    """
-    file_xyz = open("{}".format(fileName_xyz), 'r')
-
-    file_xyz.readline()  # in order to jump to coords section
-    file_xyz.readline()
-
-    ctr = 0
-
-    while True:
-        line = file_xyz.readline()
-        if line == '':
-            break
-
-        line = line.split()
-        coords_x = float(line[1])
-        coords_y = float(line[2])
-        coords_z = float(line[3])
-        atomObject_list[0][ctr].set_coords([coords_x, coords_y, coords_z])
-        ctr += 1
-
-    file_xyz.close()
-
-
-def count_atoms_in_layers(atom_obj_list):
-    """
-    calculates number of atoms in a list of atom objects
+    calculates number of atoms in layers and number of link atoms
 
     Parameters
     ----------
-    atom_obj_list : LIST of atom objects
-        DESCRIPTION.
-
+    atom_obj_list : LIST 
+        a list of atom objects.
+    link_atom_obj_list : LIST
+        a list og link atom objects
     Returns
     -------
     n_at_in_oniom : INT
@@ -1748,26 +1793,36 @@ def count_atoms_in_layers(atom_obj_list):
     n_atom_in_L_layer : INT
         # of atoms in the L-layer
     n_link_atoms_for_H : INT
-        # of link atoms
-
+        # of link atoms capping the H-layer
+    n_link_atoms_for_M : INT
+        # of link atoms capping the M-layer    
     """
     n_at_in_oniom = len(atom_obj_list)
     n_atom_in_H_layer = 0
     n_atom_in_M_layer = 0
     n_atom_in_L_layer = 0
     n_link_atoms_for_H = 0
+    n_link_atoms_for_M = 0
+    n_LAH = 0
     for atom in atom_obj_list:
         if atom.get_oniom_layer() == "H":
             n_atom_in_H_layer += 1
         elif atom.get_oniom_layer() == "M":
             n_atom_in_M_layer += 1   
         elif atom.get_oniom_layer() == "L":
-            n_atom_in_L_layer += 1    
-        if atom.get_LAH(): # wymaga uogólnienia na przypadek gdy H/M/L
-            n_link_atoms_for_H += 1
+            n_atom_in_L_layer += 1  
+        if atom.get_LAH(): # count link atom hosts
+            n_LAH += 1
             
+    for lk_atom in link_atom_obj_list:
+        if lk_atom.get_oniom_layer() == 'H':
+            n_link_atoms_for_H += 1
+        elif lk_atom.get_oniom_layer() == 'M':
+            n_link_atoms_for_M += 1
+    
+    assert n_LAH == (n_link_atoms_for_H + n_link_atoms_for_M), "number of LAH != lk_for_H + lk_for_M"
     return n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H
+        n_link_atoms_for_H, n_link_atoms_for_M
 
 
 def extract_at_atm_p_charges(atoms_list, layer="L"):
@@ -1779,13 +1834,13 @@ def extract_at_atm_p_charges(atoms_list, layer="L"):
     atoms_list : list
         list of atom objects for the whole ONIOM system.
     layer : string, optional
-        atomic charges from which layer shall be extracted. 
+        from which layer atomic charges shall be extracted. 
         Can be either "L", "M" or "H". The default is "L".
 
     Returns
     -------
     at_at_p_charges : list
-        a list of point charge objects.
+        a list of point_charge objects.
 
     """
     at_at_p_charges = []
@@ -1801,7 +1856,7 @@ def extract_at_atm_p_charges(atoms_list, layer="L"):
 
 def extract_qm_system(atoms_list, link_atom_list, layer="H"):
     """
-    extracts a subsystem of ONIOM calculations: H or M + link atoms
+    extracts a subsystem of ONIOM calculations: H + link atoms or M + link atoms
 
     Parameters
     ----------
@@ -1827,7 +1882,7 @@ def extract_qm_system(atoms_list, link_atom_list, layer="H"):
             for link in link_atom_list:
                 if link.get_index() == atom.get_index():
                     bd_to_ix = link.get_bonded_to()
-                    if atoms_list[bd_to_ix - 1].get_oniom_layer() == layer:
+                    if atoms_list[bd_to_ix].get_oniom_layer() == layer:
                         qm_system_atoms.append(link)
                         break
     return qm_system_atoms
@@ -1887,7 +1942,33 @@ def extract_chemical_composition(atoms_list):
     return H_layer_composition, M_layer_composition, L_layer_composition
     
 
-def mod_layer(residues, atoms, res_ix, schain_ix, ix, layer):  
+def mod_layer(residues, atoms, res_ix, schain_ix, ix, layer):
+    """
+    Modifies a layer attribute of atoms to value given by layer
+    All atoms in residues whose (0-based) indexes are provided (res_ix) are affected
+    All atoms in side chains of residues (schain_ix) are affected
+    All atoms whose indexes (ix) are provided are affected
+
+    Parameters
+    ----------
+    residues : LIST
+        a list of residue objects (whole system).
+    atoms : LIST
+        a list of atom objects (whole system).
+    res_ix : LIST
+        a list of (0-based) residue indexes.
+    schain_ix : LIST
+        a list of (0-based) side chain (residue) indexes.
+    ix : LIST
+        a list of (0-based) atom indexes.
+    layer : STRING
+        symbol of an ONIOM layer, can be: 'H', 'M', or 'L'.
+
+    Returns
+    -------
+    None.
+
+    """
     for i in res_ix:
         res = residues[i]
         for at in res.get_atoms():
@@ -1903,6 +1984,26 @@ def mod_layer(residues, atoms, res_ix, schain_ix, ix, layer):
 
 
 def lk_atoms_mod(link_at_list, atom_list, layer):
+    """
+    Set "bonded_to" atribute of link atoms and
+    calculate coordinates of H-link atom and sets "H_coords"
+    attribute of link atoms
+
+    Parameters
+    ----------
+    link_at_list : LIST
+        a list of link atoms in the system.
+    atom_list : LIST
+        a list of all atoms in the system.
+    layer : STRING
+        symbol of a layer which is capped by these link atoms,
+        can be 'H' or 'M'.
+
+    Returns
+    -------
+    None.
+
+    """
     for at in link_at_list:
         con_list = at.get_connect_list()
         for con_ix in con_list: # find QM atom bonded to a given link atom
@@ -1911,6 +2012,58 @@ def lk_atoms_mod(link_at_list, atom_list, layer):
                 at.set_bonded_to(con_ix)
                 adjust_HLA_coords(at, con_at)
                 break
+
+
+def print_help():  
+    help_text = """A python3 script to read Gaussian ONIOM(QM:MM) input file and modify its content
+
+Command line arguments:
+    1. oniom input file name to read 
+    2. name of the file to be produced (of type: oniom input, qm input, xyz)
+    3. string switch, one from the list given below
+    4. only for: "rag", "rqg", "rqq" and "omod" - name of an additional input file 
+    (of type: xyz (rag and rqg), qout (rqq) or input (omod))
+
+Meaning of the switches:
+    eag  - extract xyz coordinates of all atoms and write into the xyz file
+    eqg  - extract xyz coordinates of H-layer atoms and write into the xyz file
+    ehmg - extract xyz coordinates of H- and M-layers atoms and write into the xyz file
+    rag  - replace xyz coordinates of all atoms to those read from the xyz file 
+    rqg  - replace xyz coordinates of H-layer atoms to those read from the xyz file
+    rqq  - replace H-layer atom charges to those read from the qout (RESP) file
+    z1   - prepare input for electronic embedding with the z1 charge model 
+    z2   - prepare input for electronic embedding with the z2 charge model
+    z3   - prepare input for electronic embedding with the z3 charge model
+    rc   - prepare input for electronic embedding with the rc charge model
+    rcd  - prepare input for electronic embedding with the rcd charge model
+    cs   - prepare input for electronic embedding with the cs charge model
+    wqm  - write QM-only Gaussian input
+    wqm_z1/z2/z3/rc/rcd/cs - write QM-only Gaussian input for ESP(RESP) calculations
+    omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone"""
+    
+    print(help_text)
+    
+
+def sum_p_charges(pq_list):
+    """
+    For a list of point_charge objects calculate a total charge
+
+    Parameters
+    ----------
+    pq_list : LIST
+        A list of point_charge objects.
+
+    Returns
+    -------
+    Q_tot : FLOAT
+        Total charge (of point charges in the input list)
+
+    """
+    Q_tot = 0.0
+    for pq in pq_list:
+        Q_tot += pq.get_charge()
+    return Q_tot
+
     
 # OLD:
     
@@ -2499,7 +2652,49 @@ def lk_atoms_mod(link_at_list, atom_list, layer):
 #     else:
 #         print("Charge sum - point charges = there's no point charges.")
 
+# def write_change(atom_list: list, atom_change: tuple) -> None:
+#     """
+#     write the modifications of charges and coords into atom_change
+#     :param atom_list:
+#     :param atom_change:
+#     :return:
+#     """
+#     for atom in atom_change[0]:
+#         if atom.get_at_charge() != atom_list[atom.get_index()-1][3]:
+#             atom.set_at_charge(atom_list[atom.get_index()-1][3])
 
+#         coords = atom.get_coords()
+#         if coords[0] != atom_list[atom.get_index()-1][0]:
+#             atom.set_coords([atom_list[atom.get_index()-1][0], atom_list[atom.get_index()-1][1], atom_list[atom.get_index()-1][2]])
+
+
+# def new_coords(fileName_xyz: str, atomObject_list: Tuple[List[atom], List[link_atom], List[int]]):
+#     """
+#     change the coords values of all atoms
+#     :param fileName_xyz: file that contains new atoms coords
+#     :param atomObject_list: list of atoms which coords we want to change (use list which atom_inf function return)
+#     :return:
+#     """
+#     file_xyz = open("{}".format(fileName_xyz), 'r')
+
+#     file_xyz.readline()  # in order to jump to coords section
+#     file_xyz.readline()
+
+#     ctr = 0
+
+#     while True:
+#         line = file_xyz.readline()
+#         if line == '':
+#             break
+
+#         line = line.split()
+#         coords_x = float(line[1])
+#         coords_y = float(line[2])
+#         coords_z = float(line[3])
+#         atomObject_list[0][ctr].set_coords([coords_x, coords_y, coords_z])
+#         ctr += 1
+
+#     file_xyz.close()
 
 # Main
 

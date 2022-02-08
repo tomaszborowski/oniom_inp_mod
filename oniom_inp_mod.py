@@ -29,22 +29,22 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 4 Feb 2022
+last update: 8 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
 
 
-from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin
-from oniom_inp_mod_aux import read_atom_inf, read_connect_list, read_p_charges, write_xyz_file
-from oniom_inp_mod_aux import read_xyz_file, read_qout_file, count_atoms_in_layers
-from oniom_inp_mod_aux import write_oniom_inp_file, write_qm_input, charge_change
-from oniom_inp_mod_aux import extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition
-from oniom_inp_mod_aux import vdw_radii, charge_summary, report_charges, nlayers_ONIOM
-from oniom_inp_mod_aux import read_single_string, read_single_number, read_pdb_file
-from oniom_inp_mod_aux import read_rsi_index, input_read_link_atoms, input_read_freeze
-from oniom_inp_mod_aux import residue, atom, main_side_chain, mod_layer, write_pdb_file
-from oniom_inp_mod_aux import lk_atoms_mod
+from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin,\
+read_atom_inf, read_connect_list, read_p_charges, write_xyz_file, atom_to_link_atom,\
+read_xyz_file, read_qout_file, count_atoms_in_layers, adjust_HLA_coords, print_help,\
+write_oniom_inp_file, write_qm_input, charge_change, sum_p_charges,\
+extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition,\
+vdw_radii, charge_summary, report_charges, nlayers_ONIOM,\
+read_single_string, read_single_number, read_pdb_file,\
+read_rsi_index, input_read_link_atoms, input_read_freeze,\
+residue, atom, main_side_chain, mod_layer, write_pdb_file,\
+lk_atoms_mod, generate_label, peptide, N_CO_in_residue, is_peptide_bond2
 
 
 # Important variables (switches):
@@ -86,10 +86,14 @@ from oniom_inp_mod_aux import lk_atoms_mod
 # add_inp_fname = 'input_examples/omod.inp'
 # switch = 'omod'
 
-oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
+#oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
+oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_fake_pq.com"
 output_fname = 'input_examples/test_out'
 add_inp_fname = 'input_examples/omod_no_freeze.inp'
+#add_inp_fname = 'input_examples/omod_nf_no_lk.inp'
 switch = 'omod'
+
+#oniom_inp = "-h"
 
 ### ---------------------------------------------------------------------- ###
 ### Seting the file names                                                  ###
@@ -116,6 +120,11 @@ switch = 'omod'
 #         print("additional input file not found \n")
 #         exit(1)
 
+### ---------------------------------------------------------------------- ###
+### if -h - write help and exit                                            ###
+if oniom_inp == '-h':
+    print_help()
+    exit()
 
 ### ---------------------------------------------------------------------- ###
 ### Reading from the oniom_inp_to_read file                                ###
@@ -153,7 +162,10 @@ else:
 inp_p_charges = None
 if inp_offsets["p_charges"] > 0:
     inp_p_charges = read_p_charges(oniom_inp_f, inp_offsets["p_charges"])
-    print("Point charge section found\n")
+    print("Point charge section found")
+    print("Number of point charges read: ", len(inp_p_charges))
+    inp_pq_sum = sum_p_charges(inp_p_charges)
+    print("Their total charge = ", str( round(inp_pq_sum, 8) ) )
     
 oniom_inp_f.close()
 
@@ -184,7 +196,7 @@ if switch in ["rag", "rqg"]:
     
     n_at_in_xyz = len(xyz_atom_list)
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)
+        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, inp_link_atoms_list)
 
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
 
@@ -223,7 +235,7 @@ if switch in ["rag", "rqg"]:
 ### CASE: replace atomic charges of H-layer atoms to those read from qout  ###
 if switch == "rqq":
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)    
+        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, inp_link_atoms_list)    
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
     
     qout_f = open(add_inp_fname, 'r')
@@ -234,7 +246,7 @@ if switch == "rqq":
 
     n_q_in_qout = len(qm_system_new_q)
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)    
+        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, inp_link_atoms_list)    
 
     if n_q_in_qout != (n_atom_in_H_layer + n_link_atoms_for_H):
         print("number of H-layer + H-link atoms read from oniom input file: ", n_atom_in_H_layer + n_link_atoms_for_H)
@@ -262,7 +274,7 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
     off_atm_p_q = []
     at_atm_p_q = [] 
     qm_system_atoms = []
-    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, [])
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, inp_p_charges)
     print("\nTotal charges read from the input file:")
     report_charges(sum_charges_initial)
     if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
@@ -363,7 +375,6 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
     else:
         old_scalecharge = None    
 
-
     if switch in ["rc", "rcd", "cs" ]:
         new_scalecharge = "=ScaleCharge=555555 charge "
     elif switch == "z1":
@@ -382,7 +393,7 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
         mod_header = inp_header.replace(old_o_command, new_o_command)
 
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H = count_atoms_in_layers(inp_atoms_list)
+        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(inp_atoms_list, inp_link_atoms_list)
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)  
         
     comment = "QM/MM charge model: " + switch + "\n"
@@ -409,6 +420,11 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
 ### CASE: read separate input file (to modify the ONIOM system partitioning)   ###
 if switch == "omod":
     mod_atoms_list = deepcopy(inp_atoms_list)
+
+# inform about charges in the input ONIOM file
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, inp_p_charges)
+    print("\nTotal charges read from the ONIOM input file:")
+    report_charges(sum_charges_initial)
 
 # set connectivity to atoms based on connectivity list read from the ONIOM input
     for at in mod_atoms_list:
@@ -467,7 +483,45 @@ if switch == "omod":
     for at, pdb_at in zip(mod_atoms_list, at_list_from_pdb):
         at.set_name(pdb_at.get_name())
 
-#   read info about H_layer and ascribe it to atoms (and residues)
+# determine and ascribe chain atribute
+    chains = []
+    gen_label = generate_label().__next__
+    
+    chain_indx = 0
+    new_chain = peptide(gen_label(), chain_indx)
+    
+    for res in residues:
+        if N_CO_in_residue(res):
+            res.set_in_protein(True)
+            chain_last_resid = new_chain.get_last_residue()
+            if chain_last_resid:
+                if is_peptide_bond2(chain_last_resid,res):
+                    new_chain.add_residue(res)
+                else:
+                    chains.append(new_chain)
+                    chain_indx += 1
+                    new_chain = peptide(gen_label(), chain_indx)
+                    new_chain.add_residue(res)
+            else:
+                new_chain.add_residue(res)
+        elif new_chain.get_last_residue():
+            chains.append(new_chain)
+            chain_indx += 1
+            new_chain = peptide(gen_label(), chain_indx) 
+
+# set chain attribute for all residues belonging to peptide chains:
+    for chain in chains:
+        chain_label = chain.get_label()
+        for resid in chain.get_residues():
+            resid.set_chain(chain_label)
+            
+# set chain attribute to all other residues:        
+    for resid in residues:
+        if resid.get_chain() == '':
+            resid.set_chain( gen_label() ) 
+
+
+#   read info about H_layer and ascribe it to atoms
     Hl_res_ix, Hl_schain_ix, Hl_ix = read_rsi_index(input_f, "%H_layer", "%end_H_layer")
     mod_layer(residues, mod_atoms_list, Hl_res_ix, Hl_schain_ix, Hl_ix, 'H')
     
@@ -498,11 +552,66 @@ if switch == "omod":
 
     link_atoms_list = new_HL_lk_atoms + new_HM_lk_atoms + new_ML_lk_atoms   
 #   check if all cut bonds are saturated with link atoms
-    pass
+    lk_at_indexes = []
+    for at in link_atoms_list:
+        lk_at_indexes.append(at.get_index())
+        
+#    link_atoms_list.sort(key=lambda x: x.get_index(), reverse=True)
+    link_atoms_list.sort(key=lambda x: x.get_index(), reverse=False)
+    lk_at_indexes.sort()    
 
+    Hl_atoms = []
+    Hl_indexes = []
+    Ml_atoms = []
+    Ml_indexes = []
+    for at in mod_atoms_list:
+        layer = at.get_oniom_layer()
+        if layer == 'H':
+            Hl_atoms.append(at)
+            Hl_indexes.append( at.get_index() )
+        elif layer == 'M':
+            Ml_atoms.append(at)
+            Ml_indexes.append( at.get_index() )
+        
+    link_atoms_updated = False    
+    for at in Hl_atoms:
+        qm_at_connect = at.get_connect_list()
+        for item in qm_at_connect:
+            if (item not in Hl_indexes) and (item not in lk_at_indexes.copy()):
+                print("\nFound a QM-MM bond not capped with H-link atom")
+                print("between atoms with (0-based) index of: ", at.get_index(), item)
+                print("Adding a standard H-link atom with HC type\n")
+                new_lk_atom = atom_to_link_atom(mod_atoms_list[item], 'HC', 0.000001, layer = 'H')
+                new_lk_atom.set_bonded_to(at.get_index())
+                new_lk_atom.set_new_type( 'HC' )
+                adjust_HLA_coords(new_lk_atom, at)
+                link_atoms_list.append(new_lk_atom)
+                lk_at_indexes.append(item)
+                link_atoms_updated = True
+
+    for at in Ml_atoms:
+        qm_at_connect = at.get_connect_list()
+        for item in qm_at_connect:
+            if (item not in Ml_indexes) and (item not in lk_at_indexes.copy()):
+                print("\nFound a QM-MM bond not capped with H-link atom")
+                print("between atoms with (0-based) index of: ", at.get_index(), item)
+                print("Adding a standard H-link atom with HC type\n")
+                new_lk_atom = atom_to_link_atom(mod_atoms_list[item], 'HC', 0.000001, layer = 'M')
+                new_lk_atom.set_bonded_to(at.get_index())
+                new_lk_atom.set_new_type( 'HC' )
+                adjust_HLA_coords(new_lk_atom, at)
+                link_atoms_list.append(new_lk_atom)
+                lk_at_indexes.append(item)
+                link_atoms_updated = True
+    
+    # sort link_atoms if this list was expanded:
+    if link_atoms_updated:
+#        link_atoms_list.sort(key=lambda x: x.get_index(), reverse=True)
+        link_atoms_list.sort(key=lambda x: x.get_index(), reverse=False)
+        lk_at_indexes.sort()
 
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H = count_atoms_in_layers(mod_atoms_list)
+        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, link_atoms_list)
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
     str_layers = ''
     if n_atom_in_L_layer > 0:
@@ -513,28 +622,35 @@ if switch == "omod":
         str_layers += 'H '        
     print("\nThe ONIOM system to be written has: ", nlayers, " layers: ", str_layers)
     
-#   check charges in the ONIOM sysstem and subsystems
-    pass
+    
+#   inform about charges in the to be written ONIOM file
+    sum_charges = charge_summary(mod_atoms_list, link_atoms_list, inp_p_charges)
+    print("\nTotal charges in the output ONIOM input file:")
+    report_charges(sum_charges)
 
-     
+    print("\nCharge and multiplicity for the ONIOM subsystems are: ")
+    print("\nModel (H + link atoms):        ", qH, mH)
+    print("\nIntermediate (M + link atoms): ", qM, mM)
+    print("\nReal:                          ", qL, mH)
+ 
     mod_charge_and_spin = deepcopy(inp_charge_and_spin)
     if qH:
         mod_charge_and_spin["ChrgModelHigh"] = qH
         mod_charge_and_spin["ChrgModelMed"] = qH
         mod_charge_and_spin["ChrgModelLow"] = qH
-    elif mH:
+    if mH:
         mod_charge_and_spin["SpinModelHigh"] = mH
         mod_charge_and_spin["SpinModelMed"] = mH
         mod_charge_and_spin["SpinModelLow"] = mH
-    elif qM:
+    if qM:
         mod_charge_and_spin["ChrgIntMed"] = qM
         mod_charge_and_spin["ChrgIntLow"] = qM
-    elif mM:
+    if mM:
         mod_charge_and_spin["SpinIntlMed"] = mH
         mod_charge_and_spin["SpinIntLow"] = mH
-    elif qL:
+    if qL:
         mod_charge_and_spin["ChrgRealLow"] = qL
-    elif mL:
+    if mL:
         mod_charge_and_spin["SpinRealLow"] = mL
 
 #   write ouput files
@@ -546,5 +662,6 @@ if switch == "omod":
     out_file.close()
 
     pdb_out_fname = output_fname[0:-3] + 'MODEL.pdb'
+    print("\nWriting a pdb file with the new model to the file: ", pdb_out_fname)
     write_pdb_file(residues, pdb_out_fname, write_Q=False)    
-# TER maja byc wypisywane po kazdej molekule 
+ 
