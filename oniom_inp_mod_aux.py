@@ -1,7 +1,7 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 8 Feb 2022
+last update: 10 Feb 2022
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
@@ -472,7 +472,8 @@ def read_atom_inf(file, offset) -> tuple:
                 oniom_layer_H_and_LAH_index_list.append(at_index)
                 link = link_atom(index=at_index, element=line[-4], at_type=line[-3], at_charge=float(line[-2]),
                                  coords=coords)
-                bonded_to = int(line[-1])
+#                bonded_to = int(line[-1])
+                bonded_to = int(line[-1]) - 1 # read value is 1-based, internal values are 0-based
                 link.set_bonded_to(bonded_to)
                 linkObject_list.append(link)
 
@@ -480,7 +481,8 @@ def read_atom_inf(file, offset) -> tuple:
 
     for H_lk_atm in linkObject_list:  # calculate the link atoms coords
         qm_atom_index = H_lk_atm.get_bonded_to()
-        adjust_HLA_coords(H_lk_atm, atomObject_list[qm_atom_index - 1])
+#        adjust_HLA_coords(H_lk_atm, atomObject_list[qm_atom_index - 1])
+        adjust_HLA_coords(H_lk_atm, atomObject_list[qm_atom_index]) # now 0-based index
 
     return atomObject_list, linkObject_list, oniom_layer_H_and_LAH_index_list  # [0] is atomObject_list,
     # [1] is linkObject_list [2] is oniom_layer_H_and_LAH_index_list when return
@@ -1123,12 +1125,13 @@ def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
                 if atom.get_LAH():
                     for lk_atom in link_atom_list:
                         if atom.get_index() == lk_atom.get_index():
-                            H_coords = lk_atom.get_H_coords()
-                    element = "H"
-                    coords = H_coords
-                    link_atoms += 1
-                    new_line = make_xyz_line(element, coords)
-                    list_of_lines.append(new_line)
+                            if atoms_list[ lk_atom.get_bonded_to() ].get_oniom_layer() == "H":                            
+                                H_coords = lk_atom.get_H_coords()
+                                element = "H"
+                                coords = H_coords
+                                link_atoms += 1
+                                new_line = make_xyz_line(element, coords)
+                                list_of_lines.append(new_line)
             elif (oniom_layer == "H"):
                 new_line = make_xyz_line(element, coords)
                 list_of_lines.append(new_line)                
@@ -1141,11 +1144,11 @@ def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
     elif layer == "H":
         n_atoms = H_atoms + link_atoms
     
-    list_of_lines.insert(0, " ")
-    list_of_lines.insert(0, str(n_atoms))
+    list_of_lines.insert(0, "\n")
+    list_of_lines.insert(0, str(n_atoms)+"\n")
     for item in list_of_lines:
-        output_f.write("%s\n" % item)
-
+#        output_f.write("%s\n" % item)
+        output_f.write("%s" % item)
 
 def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_list):
     """

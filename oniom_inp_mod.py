@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 oniom_inp_mod
@@ -29,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 8 Feb 2022
+last update: 10 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
@@ -87,44 +88,59 @@ lk_atoms_mod, generate_label, peptide, N_CO_in_residue, is_peptide_bond2
 # switch = 'omod'
 
 #oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
-oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_fake_pq.com"
-output_fname = 'input_examples/test_out'
-add_inp_fname = 'input_examples/omod_no_freeze.inp'
+#oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_fake_pq.com"
+#output_fname = 'input_examples/test_out'
+#add_inp_fname = 'input_examples/omod_no_freeze.inp'
 #add_inp_fname = 'input_examples/omod_nf_no_lk.inp'
-switch = 'omod'
+#switch = 'omod'
 
 #oniom_inp = "-h"
 
 ### ---------------------------------------------------------------------- ###
 ### Seting the file names                                                  ###
-# oniom_inp = sys.argv[1]
-# output_fname = sys.argv[2]
-# switch = sys.argv[3]
-# if len(sys.argv) > 4:
-#     add_inp_fname = sys.argv[4]
+sys_argv_len = len(sys.argv)
+if sys_argv_len > 1:
+    oniom_inp = sys.argv[1]
+else:
+    oniom_inp = None
+if sys_argv_len > 2:
+    output_fname = sys.argv[2]
+else:
+    output_fname = None
+if sys_argv_len > 3:
+    switch = sys.argv[3]
+else:
+    switch = None
+if sys_argv_len > 4:
+    add_inp_fname = sys.argv[4]
+else:
+    add_inp_fname = None
 
-# LEGAL_SWITCHES = ["eag", "eqg", "ehmg", "rag", "rqg", "rqq", "z1", "z2", "z3",\
-#                   "rc", "rcd", "cs", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc",\
-#                   "wqm_rcd", "wqm_cs", "omod"]
+LEGAL_SWITCHES = ["eag", "eqg", "ehmg", "rag", "rqg", "rqq", "z1", "z2", "z3",\
+		  "rc", "rcd", "cs", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc",\
+		  "wqm_rcd", "wqm_cs", "omod"]
 
-# if switch not in LEGAL_SWITCHES:
-#     print("Provided switch: ", switch, " was not recognized\n")
-#     exit(1)
-
-# if not os.path.isfile(oniom_inp):
-#     print("ONIOM input file not found \n")
-#     exit(1)
-
-# if len(sys.argv) > 4:
-#     if not os.path.isfile(add_inp_fname):
-#         print("additional input file not found \n")
-#         exit(1)
-
-### ---------------------------------------------------------------------- ###
 ### if -h - write help and exit                                            ###
-if oniom_inp == '-h':
+if oniom_inp == "-h":
     print_help()
-    exit()
+    sys.exit(1)
+    
+if switch not in LEGAL_SWITCHES:
+    print("Provided switch: ", switch, " was not recognized\n")
+    sys.exit(1)
+
+if not os.path.isfile(oniom_inp):
+    print("ONIOM input file not found \n")
+    sys.exit(1)
+
+if not output_fname:
+    print("Output file name is required as the 2nd argument \n")
+    sys.exit(1)    
+
+if len(sys.argv) > 4:
+    if not os.path.isfile(add_inp_fname):
+       print("additional input file not found \n")
+       sys.exit(1)
 
 ### ---------------------------------------------------------------------- ###
 ### Reading from the oniom_inp_to_read file                                ###
@@ -168,6 +184,15 @@ if inp_offsets["p_charges"] > 0:
     print("Their total charge = ", str( round(inp_pq_sum, 8) ) )
     
 oniom_inp_f.close()
+
+
+### ---------------------------------------------------------------------- ###
+### set appropriate (H or M) oniom_layer for link atoms                    ###
+for lk_at in inp_link_atoms_list:
+    bonded_to = lk_at.get_bonded_to()
+    b2_layer = inp_atoms_list[bonded_to].get_oniom_layer()
+    lk_at.set_oniom_layer(b2_layer)
+#    print(str(lk_at.get_oniom_layer()))
 
 
 ### ---------------------------------------------------------------------- ###
