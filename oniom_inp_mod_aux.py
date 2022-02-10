@@ -1110,12 +1110,13 @@ def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
                 if atom.get_LAH():
                     for lk_atom in link_atom_list:
                         if atom.get_index() == lk_atom.get_index():
-                            H_coords = lk_atom.get_H_coords()
-                    element = "H"
-                    coords = H_coords
-                    link_atoms += 1
-                    new_line = make_xyz_line(element, coords)
-                    list_of_lines.append(new_line)       
+                            if atoms_list[ lk_atom.get_bonded_to() ].get_oniom_layer() == "M":
+                                H_coords = lk_atom.get_H_coords()
+                                element = "H"
+                                coords = H_coords
+                                link_atoms += 1
+                                new_line = make_xyz_line(element, coords)
+                                list_of_lines.append(new_line)       
             elif (oniom_layer == "H") or (oniom_layer == "M"):
                 new_line = make_xyz_line(element, coords)
                 list_of_lines.append(new_line)

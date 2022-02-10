@@ -34,7 +34,7 @@ last update: 10 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
-
+import numpy as np
 
 from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin,\
 read_atom_inf, read_connect_list, read_p_charges, write_xyz_file, atom_to_link_atom,\
@@ -175,13 +175,15 @@ if inp_offsets["parm"] > 0:
 else:
     print("FF parameters section not found\n")
 
-inp_p_charges = None
+#inp_p_charges = None
 if inp_offsets["p_charges"] > 0:
     inp_p_charges = read_p_charges(oniom_inp_f, inp_offsets["p_charges"])
     print("Point charge section found")
     print("Number of point charges read: ", len(inp_p_charges))
     inp_pq_sum = sum_p_charges(inp_p_charges)
     print("Their total charge = ", str( round(inp_pq_sum, 8) ) )
+else:
+    inp_p_charges = []
     
 oniom_inp_f.close()
 
@@ -259,6 +261,11 @@ if switch in ["rag", "rqg"]:
 ### ---------------------------------------------------------------------- ###
 ### CASE: replace atomic charges of H-layer atoms to those read from qout  ###
 if switch == "rqq":
+    print("#----------------------------------------------------------------------#")
+    print("Changing atomic charges of H-layer atoms to values read from qout file\n")
+    
+    mod_atoms_list = deepcopy(inp_atoms_list)
+    
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
         n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, inp_link_atoms_list)    
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
@@ -266,25 +273,40 @@ if switch == "rqq":
     qout_f = open(add_inp_fname, 'r')
     qm_system_new_q = read_qout_file(qout_f)
     qout_f.close()
-    
-    mod_atoms_list = deepcopy(inp_atoms_list)
 
     n_q_in_qout = len(qm_system_new_q)
-    n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
-        n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(mod_atoms_list, inp_link_atoms_list)    
-
+    qout_Q_total = np.sum( np.array(qm_system_new_q) )
+    print("From qout file read: ", n_q_in_qout, "charge values")
+    print("Their sum = ", str( round(qout_Q_total, 6) ) )
+    
+    
     if n_q_in_qout != (n_atom_in_H_layer + n_link_atoms_for_H):
-        print("number of H-layer + H-link atoms read from oniom input file: ", n_atom_in_H_layer + n_link_atoms_for_H)
-        print("\ndoes not match number of charges read from the qout input file: ", n_q_in_qout)
+        print("\nNumber of H-layer + H-link atoms read from oniom input file: ", n_atom_in_H_layer + n_link_atoms_for_H)
+        print("does not match number of charges read from the qout input file: ", n_q_in_qout)
         exit(1)
 
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, inp_p_charges)
+    print("\nTotal charges read from the input ONIOM file:")
+    report_charges(sum_charges_initial)
+
     count = 0    
+    lk_tot_charge = 0
     for atom in mod_atoms_list:
         if (atom.get_oniom_layer() == "H"): 
             atom.set_at_charge(qm_system_new_q[count])
             count += 1
-        elif (atom.get_oniom_layer() == "L") and atom.get_LAH(): # wymaga uogólnienia na przypadek gdy H/M/L
-            count += 1    # skip LAH / link atom
+        elif atom.get_LAH():
+            at_ix = atom.get_index()
+            for lk_at in inp_link_atoms_list:
+                if (lk_at.get_index() == at_ix):
+                    if (lk_at.get_oniom_layer() == "H"):
+                        lk_tot_charge += qm_system_new_q[count]
+                        count += 1    # skip LAH / link atom   
+
+    sum_charges = charge_summary(mod_atoms_list, inp_link_atoms_list, inp_p_charges)
+    print("\nTotal charges after ascribing H-layer charges read from the qout file:")
+    report_charges(sum_charges)
+    print("Total charge not ascribed (to LAHs) = ", str(round(lk_tot_charge, 6)))
 
     out_file = open(output_fname, 'a')
     write_oniom_inp_file(out_file, inp_header, inp_comment, inp_charge_and_spin, nlayers,\
