@@ -44,13 +44,8 @@ extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition,\
 vdw_radii, charge_summary, report_charges, nlayers_ONIOM,\
 read_single_string, read_single_number, read_pdb_file,\
 read_rsi_index, input_read_link_atoms, input_read_freeze,\
-residue, atom, main_side_chain, mod_layer, write_pdb_file,\
+residue, main_side_chain, mod_layer, write_pdb_file,\
 lk_atoms_mod, generate_label, peptide, N_CO_in_residue, is_peptide_bond2
-
-
-# Important variables (switches):
-#nlayers = 2 # number of layers in the ONIOM (2 or 3)
-
 
 
 ### ---------------------------------------------------------------------- ###
@@ -142,6 +137,13 @@ if len(sys.argv) > 4:
        print("additional input file not found \n")
        sys.exit(1)
 
+print("#----------------------------------------------------------------------#")
+print("input file: ", oniom_inp)
+print("output file: ", output_fname)
+print("switch: ", switch)
+if add_inp_fname:
+    print("additional input file name: ", add_inp_fname)
+
 ### ---------------------------------------------------------------------- ###
 ### Reading from the oniom_inp_to_read file                                ###
 
@@ -200,6 +202,7 @@ for lk_at in inp_link_atoms_list:
 ### ---------------------------------------------------------------------- ###
 ### CASE: extract xyz coordinates and write into xyz file                  ###
 if switch in ["eag", "eqg", "ehmg"]:
+    
     output_f = open(output_fname, 'a')
     if switch == "eag":
         layer = "HML"
@@ -208,6 +211,8 @@ if switch in ["eag", "eqg", "ehmg"]:
     elif switch == "ehmg":
         layer = "HM"
 
+    print("#----------------------------------------------------------------#")
+    print("Extracting ", layer, " layer(s) (+ link atoms) into the xyz file\n")
     write_xyz_file(output_f, inp_atoms_list, inp_link_atoms_list, layer)
     output_f.close()
     
@@ -227,29 +232,31 @@ if switch in ["rag", "rqg"]:
 
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)
 
-    
+    print("#-------------------------------------------------------------#")
     if switch == "rag":
+        print("Replacing geometry of the whole system to that read from the xyz file\n")
         if n_at_in_xyz != n_at_in_oniom:
             print("number of atoms read from oniom input file: ", n_at_in_oniom)
             print("\ndoes not match that read from the xyz input file: ", n_at_in_xyz)
             exit(1)
-        for atom, xyz_line in zip(mod_atoms_list, xyz_atom_list):
-            assert atom.get_element() == xyz_line[0], "element of atom " + str(atom.get_index()) + " does not match"
-            atom.set_coords(xyz_line[1:4])
+        for atm, xyz_line in zip(mod_atoms_list, xyz_atom_list):
+            assert atm.get_element() == xyz_line[0], "element of atom " + str(atm.get_index()) + " does not match"
+            atm.set_coords(xyz_line[1:4])
             
     elif switch == "rqg":
+        print("Replacing geometry of the H-layer to that read from the xyz file\n")
         if n_at_in_xyz != (n_atom_in_H_layer + n_link_atoms_for_H):
             print("number of H-layer + H-link atoms read from oniom input file: ", n_atom_in_H_layer + n_link_atoms_for_H)
             print("\ndoes not match that read from the xyz input file: ", n_at_in_xyz)
             exit(1)
         count = 0    
-        for atom in mod_atoms_list:
-            if (atom.get_oniom_layer() == "H"): 
-                assert atom.get_element() == xyz_atom_list[count][0], "element of atom " + str(atom.get_index()) + " does not match"
-                atom.set_coords(xyz_atom_list[count][1:4])
+        for atm in mod_atoms_list:
+            if (atm.get_oniom_layer() == "H"): 
+                assert atm.get_element() == xyz_atom_list[count][0], "element of atom " + str(atm.get_index()) + " does not match"
+                atm.set_coords(xyz_atom_list[count][1:4])
                 count += 1
-            elif (atom.get_oniom_layer() == "L") and atom.get_LAH(): # wymaga uogólnienia na przypadek gdy H/M/L
-                assert "H" == xyz_atom_list[count][0], "atom " + str(atom.get_index()) + "should be H " + str(count) + " in the xyz file "  
+            elif (atm.get_oniom_layer() == "L") and atm.get_LAH(): # wymaga uogólnienia na przypadek gdy H/M/L
+                assert "H" == xyz_atom_list[count][0], "atom " + str(atm.get_index()) + "should be H " + str(count) + " in the xyz file "  
                 count += 1
                 
     out_file = open(output_fname, 'a')
@@ -291,12 +298,12 @@ if switch == "rqq":
 
     count = 0    
     lk_tot_charge = 0
-    for atom in mod_atoms_list:
-        if (atom.get_oniom_layer() == "H"): 
-            atom.set_at_charge(qm_system_new_q[count])
+    for atm in mod_atoms_list:
+        if (atm.get_oniom_layer() == "H"): 
+            atm.set_at_charge(qm_system_new_q[count])
             count += 1
-        elif atom.get_LAH():
-            at_ix = atom.get_index()
+        elif atm.get_LAH():
+            at_ix = atm.get_index()
             for lk_at in inp_link_atoms_list:
                 if (lk_at.get_index() == at_ix):
                     if (lk_at.get_oniom_layer() == "H"):
@@ -317,6 +324,11 @@ if switch == "rqq":
 ### ---------------------------------------------------------------------- ###
 ### CASE: write QM-only Gaussian input                                     ###
 if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
+    print("#----------------------------------------------------------------------------------------------#")
+    if switch == "wqm":
+        print("Writing QM Gaussian input file\n")
+    else:
+        print("Writing QM Gaussian for RESP input file with point charges within the model: ", switch[4:0], "\n")
     read_radii = False # if additional radii info will be placed in the Gaussian input file
     off_atm_p_q = []
     at_atm_p_q = [] 
@@ -397,13 +409,14 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
 ### ---------------------------------------------------------------------- ###
 ### CASE: write ONIOM=EE Gaussian input                                    ###
 if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
-
+    print("#---------------------------------------------------------------------------------#")
+    print("Writing 2-layer ONIOM=ElectronicEmbeding input file with charge QM-MM model: ", switch, "\n")
 #    inp_header -> mod_header
 #        z1 Oniom(...)=ScaleCharge=555555
 #        z2 Oniom(...)=ScaleCharge=555550
 #        z3 Oniom(...)=ScaleCharge=555500
 #        cs/rc/rcd Oniom(...)=ScaleCharge=555555 charge
-
+# UWAGA: dla z1, z2 i z3 wystarczy odp ScaleCharge, nie zerować ładunków tutaj (przy QM input trzeba) !!!
     find = re.search(r'[Oo][Nn][Ii][Oo][Mm]\((.+)\)', inp_header)
     if find:
         old_o_command = find.group(0)       
@@ -442,6 +455,9 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
     n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
         n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(inp_atoms_list, inp_link_atoms_list)
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)  
+
+    if (n_atom_in_M_layer > 0) and (nlayers == 3):
+        print("WARNING: 3-layer ONIOM system read, 2-layer (H/L) ONIOM system will be written\n")
         
     comment = "QM/MM charge model: " + switch + "\n"
     off_atm_p_q = []
@@ -466,6 +482,13 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
 ### -------------------------------------------------------------------------- ###
 ### CASE: read separate input file (to modify the ONIOM system partitioning)   ###
 if switch == "omod":
+    input_f = open(add_inp_fname, 'r')
+    print("#---------------------------------------------------------------------------------#")
+    print("Modifying the ONIOM system partitioning according to info read from file: ", add_inp_fname, "\n")
+    print("Content of this file: \n")
+    content_inp_f = input_f.read()
+    print(content_inp_f)
+    print("#---------------------------------------------------------------------------------#")
     mod_atoms_list = deepcopy(inp_atoms_list)
 
 # inform about charges in the input ONIOM file
@@ -478,8 +501,6 @@ if switch == "omod":
         at_ix = at.get_index()
         connect = inp_connect[at_ix]
         at.set_connect_list(connect)
-    
-    input_f = open(add_inp_fname, 'r')
     
     pdb_file_name = read_single_string(input_f, "%pdb_f_name")
     qH = read_single_number(input_f, "%H_charge")

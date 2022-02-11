@@ -1,7 +1,7 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 10 Feb 2022
+last update: 11 Feb 2022
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
@@ -1618,7 +1618,7 @@ def charge_change(atom_list, link_atom_list, connect_dic, q_model) -> list:
     :param q_model: string, type of charge model: "z1", "z2", "z3", "rc", "rcd" or "cs"
     :return: a list of off-atoms point charges - point_charge objects (may be empty)
     """
-
+# UWAGA: wymaga zmiany, by tylko LAH dla H-layer mialy zerowane ładunki, te dla M-layer nie !!!
     off_atm_p_charges = []
 
     for lk_atom in link_atom_list:
