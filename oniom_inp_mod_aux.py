@@ -1,10 +1,11 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 11 Feb 2022
+last update: 17 Feb 2022
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
+from copy import deepcopy
 #from typing import Tuple, List
 
 # CONSTANTS
@@ -41,7 +42,7 @@ class point_charge:
         y = str( round(self.coords[1], 6) )
         z = str( round(self.coords[2], 6) )
         q = str( round(self.charge, 8) )
-        return  x + " " + y + " " + z + " " + q + "\n"
+        return  x + " " + y + " " + z + " " + q
     
     def set_charge(self, q):
         self.charge = q
@@ -59,7 +60,7 @@ class atom:
         self.at_type = at_type
         self.new_at_type = None
         self.at_charge = at_charge
-        self.oniom_layer = oniom_layer
+        self.oniom_layer = oniom_layer # string, one from 'L', 'M' or 'H'
         self.tree_chain_classification = ''  #
         self.connect_list = []
         self.in_mainchain = False  #
@@ -472,7 +473,6 @@ def read_atom_inf(file, offset) -> tuple:
                 oniom_layer_H_and_LAH_index_list.append(at_index)
                 link = link_atom(index=at_index, element=line[-4], at_type=line[-3], at_charge=float(line[-2]),
                                  coords=coords)
-#                bonded_to = int(line[-1])
                 bonded_to = int(line[-1]) - 1 # read value is 1-based, internal values are 0-based
                 link.set_bonded_to(bonded_to)
                 linkObject_list.append(link)
@@ -481,17 +481,15 @@ def read_atom_inf(file, offset) -> tuple:
 
     for H_lk_atm in linkObject_list:  # calculate the link atoms coords
         qm_atom_index = H_lk_atm.get_bonded_to()
-#        adjust_HLA_coords(H_lk_atm, atomObject_list[qm_atom_index - 1])
         adjust_HLA_coords(H_lk_atm, atomObject_list[qm_atom_index]) # now 0-based index
 
-    return atomObject_list, linkObject_list, oniom_layer_H_and_LAH_index_list  # [0] is atomObject_list,
-    # [1] is linkObject_list [2] is oniom_layer_H_and_LAH_index_list when return
+    return atomObject_list, linkObject_list, oniom_layer_H_and_LAH_index_list  
 
 
 def read_connect_list(file, offset) -> dict:    
     """
     create a dictionary where key is atom and value is a list of atoms(ints) connected to it
-    keys are 0-based
+    keys and values are 0-based
     :return:
     dict = { atom(int 0-based) : [connected_atom_1, connected_atom_2, ...],}
     """
@@ -1019,9 +1017,11 @@ def write_charge_spin(charge_spin, nlayers):
     """
     print into a file (Gaussian input) the content of the charge_spin
     :param charge_spin: dictionary with charge and spin information
-    nlayers - intiger, number of layers (2 or 3)
+    nlayers - intiger, number of layers (1, 2 or 3)
     :return: line - string
     """
+    one_layer_seq = ["ChrgRealLow", "SpinRealLow"]
+
     two_layer_seq = ["ChrgRealLow", "SpinRealLow", "ChrgModelHigh", "SpinModelHigh",
                      "ChrgModelLow", "SpinModelLow"]
     
@@ -1029,6 +1029,9 @@ def write_charge_spin(charge_spin, nlayers):
                        "ChrgIntLow", "SpinIntLow", "ChrgModelHigh", "SpinModelHigh",
                        "ChrgModelMed", "SpinModelMed", "ChrgModelLow", "SpinModelLow"]
     line = ''
+    if nlayers == 1:
+        for key in one_layer_seq:
+            line = line + str(charge_spin[key]) + "  "
     if nlayers == 2:
         for key in two_layer_seq:
             line = line + str(charge_spin[key]) + "  "
@@ -1148,8 +1151,41 @@ def write_xyz_file(output_f, atoms_list, link_atom_list, layer):
     list_of_lines.insert(0, "\n")
     list_of_lines.insert(0, str(n_atoms)+"\n")
     for item in list_of_lines:
-#        output_f.write("%s\n" % item)
         output_f.write("%s" % item)
+
+
+def gen_connect(atom_list):
+    """
+    generate a new connectivity list (0-based) for a list of atom objects
+
+    Parameters
+    ----------
+    atom_list : LIST
+        a list of atom objects.
+
+    Returns
+    -------
+    connect : DICTIONARY
+        a new connectivity dictionary: key - 0-based index, value - a list of indexes of connected atoms.
+
+    """
+    i = 0
+    translate_index = {}
+    for at in atom_list:
+        at_ix = at.get_index()
+        translate_index[at_ix] = i
+        i += 1
+    
+    connect = {}
+    for at in atom_list:
+        at_ix = at.get_index()
+        at_ix_new = translate_index[at_ix]
+        at_connect = at.get_connect_list()
+        at_connect_new = [translate_index[i] for i in at_connect]
+        connect[at_ix_new] = at_connect_new
+    
+    return connect
+
 
 def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_list):
     """
@@ -1175,6 +1211,8 @@ def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
     None.
 
     """
+    connect = gen_connect(atom_list)
+    
     file.write(header)
     file.write('\n')
     file.write(comment)
@@ -1191,13 +1229,77 @@ def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
         file.write(line)
         
     file.write('\n')
+    write_connect(file, connect)
     
     if len(point_charge_list) > 0:
         for p_q in point_charge_list:
-            file.write(p_q.get_string())
+            file.write( '\n{}'.format( p_q.get_string() ) )
         file.write('\n')
-            
-            
+    
+    file.write('\n')        
+
+
+def write_mm_input(file, header, comment, chargeSpin, atom_list, point_charge_list, params=None):
+    """
+    writes Gaussian MM input file
+
+    Parameters
+    ----------
+    file : file object
+        to which the content is written.
+    header : string
+        header of the input file.
+    comment : string
+        comment.
+    chargeSpin : dictionary
+        dic with charge and spin data.
+    atom_list : list
+        a list of atom objects.
+    point_charge_list : list
+        a list of point_charge objects.
+    params : string
+        a string with parameters section
+    Returns
+    -------
+    None.
+
+    """
+    connect = gen_connect(atom_list)
+    
+    file.write(header)
+    file.write('\n')
+    file.write(comment)
+    file.write('\n')
+
+
+    file.write(str(chargeSpin["ChrgModelLow"]) + "\t" + str(chargeSpin["SpinModelLow"]))
+    file.write('\n')
+
+    for atom in atom_list:
+        element = atom.get_element()
+        at_type = atom.get_type()
+        at_charge = atom.get_at_charge()
+        coords = atom.get_coords()
+        line = element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + '\t\t' + \
+                          '{:06.6f}'.format(coords[0]) + '     ' + \
+                          '{:06.6f}'.format(coords[1]) + '     ' + \
+                          '{:06.6f}'.format(coords[2]) + '\n'
+        file.write(line)
+
+    file.write('\n')
+    write_connect(file, connect)
+
+    if params:
+        file.write('\n{}'.format(params))
+    
+    if len(point_charge_list) > 0:
+        for p_q in point_charge_list:
+            file.write( '\n{}'.format( p_q.get_string() ) )
+        file.write('\n')
+    
+    file.write('\n') 
+
+                
 def write_oniom_atom_section(file, atom_list, link_atom_list):
     """
     print into a file (ONIOM input) the atom section 
@@ -1209,14 +1311,14 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
     """
     for atom in atom_list:
         element = atom.get_element()
-        type = atom.get_type()
+        at_type = atom.get_type()
         at_charge = atom.get_at_charge()
         frozen = atom.get_frozen()
         if frozen is None:
             frozen = ''
         coords = atom.get_coords()
         oniom_layer = atom.get_oniom_layer()
-        file.write(element + '-' + type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
+        file.write(element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
                           '{:06.6f}'.format(coords[0]) + '     ' + \
                           '{:06.6f}'.format(coords[1]) + '     ' + \
                           '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)
@@ -1241,7 +1343,7 @@ def write_connect(file, connect) -> None:
     :return: None
     """
     for key, value in sorted(connect.items()):
-        value = [i for i in value if i > key]  # remove information about redundant connection
+        value = [i for i in value if i > key]  # remove information not needed in Gaussian connectivity list
         file.write(" " + str(key+1) + " " + " ".join(str(item+1) + " 1.0" for item in value) + ' \n')
 
         
@@ -1309,13 +1411,85 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
     
     if params:
         file.write('\n{}'.format(params))
-        file.write("\n")
 
     if p_charges:
         for p_q in p_charges:
-            file.write(p_q.get_string())
-        file.write('\n')
+            file.write('\n{}'.format( p_q.get_string() ) )
+    
+    file.write("\n\n\n")     
+
+
+def write_mm_inp_file(file, header, comment, charge_and_spin,\
+                         atoms_list, connect, redundant=None, params=None, p_charges=None):
+    """
+    writes MM input file
+
+    Parameters
+    ----------
+    file : file object
+        file to which ONIOM input will be written.
+    header : STRING
+        contains the header section of the input file.
+    comment : STRING
+        comment line(s) in the Gaussian input.
+    charge_and_spin : DICTIONARY
+        Dictionary with charge and multiplicity info.
+    atoms_list : LIST
+        list of atom objects.
+    connect : DICTIONARY
+        dictionary with atoms connectivity information.
+    redundant : STRING, optional
+        redundant coordinate section (which may follow connectivity). The default is None.
+    params : STRING, optional
+        section with FF parameters. The default is None.
+    p_charges : LIST, optional
+        a list of off-atom point charges (objects). The default is None.
+    Returns
+    -------
+    None.
+
+    """
+    # chk_read = read_Chk(header)
+    
+    # old_chk_line = '%oldChk={}{}'.format(chk_read[0], chk_read[1])
+    # new_header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(chk_read[0], '_new', chk_read[1]),
+    #                 header)
+
+    # file.write(old_chk_line)
+    # file.write(new_header)
+    file.write(header)
+    file.write("\n")
+    file.write(comment)
+    file.write("\n")
+    
+    charge_spin_line = write_charge_spin(charge_and_spin, 1)
+    file.write(charge_spin_line + "\n")
+
+    mm_atoms_list = deepcopy(atoms_list)
+    for at in mm_atoms_list:
+        old_layer = at.get_oniom_layer()
+        if old_layer != 'L':
+            at.set_oniom_layer('L')
+        if at.get_LAH:
+            at.set_LAH(False)
         
+
+    write_oniom_atom_section(file, mm_atoms_list, [])
+    file.write("\n")
+    write_connect(file, connect)
+    
+    if redundant:
+        file.write('\n{}'.format(redundant))
+    
+    if params:
+        file.write('\n{}'.format(params))
+
+    if p_charges:
+        for p_q in p_charges:
+            file.write('\n{}'.format( p_q.get_string() ) )
+    
+    file.write("\n\n")   
+
 
 def write_pdb_file(residue_list, file_name, write_Q=False):
     """writes a PDB file with a name file_name
@@ -1611,14 +1785,14 @@ def adjust_HLA_coords(H_lk_atm: link_atom, qm_atom: atom, bl_sf=0.723886) -> Non
 
 def charge_change(atom_list, link_atom_list, connect_dic, q_model) -> list:
     """
-    change atom charge and create a list of off-atom point charges
-    :param atom_list: a list of atom objects
-    :param link_atom_list: a list of link atom objects
+    Change atom charge and create a list of off-atom point charges at the QM/MM border
+    Decisive which atoms get their charge changed is the link_atom_list
+    :param atom_list: a list of atom objects - their charges can be changed
+    :param link_atom_list: a list of link atom objects - their positions are decisive
     :param connect_dic: a dictionary with connectivity info (key: 0-based index, value: a list)
     :param q_model: string, type of charge model: "z1", "z2", "z3", "rc", "rcd" or "cs"
     :return: a list of off-atoms point charges - point_charge objects (may be empty)
     """
-# UWAGA: wymaga zmiany, by tylko LAH dla H-layer mialy zerowane ładunki, te dla M-layer nie !!!
     off_atm_p_charges = []
 
     for lk_atom in link_atom_list:
@@ -1667,9 +1841,9 @@ def charge_change(atom_list, link_atom_list, connect_dic, q_model) -> list:
             for m2ix in m2_ixs:
                 m2_coords = atom_list[m2ix].get_coords()
                 p1crd, p2crd = cs_q_coords(m1_coords, m2_coords)
-                off_atm_pq_1 = point_charge(-5*q, p1crd)
+                off_atm_pq_1 = point_charge(5*q, p1crd)
                 off_atm_p_charges.append(off_atm_pq_1)
-                off_atm_pq_2 = point_charge(5*q, p2crd)
+                off_atm_pq_2 = point_charge(-5*q, p2crd)
                 off_atm_p_charges.append(off_atm_pq_2)
                 m2_orig_q = atom_list[m2ix].get_at_charge()
                 m2_new_q = m2_orig_q + q

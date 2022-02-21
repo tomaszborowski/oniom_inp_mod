@@ -30,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 10 Feb 2022
+last update: 17 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
@@ -39,8 +39,8 @@ import numpy as np
 from oniom_inp_mod_aux import find_in_file, read_from_to_empty_line, read_charge_spin,\
 read_atom_inf, read_connect_list, read_p_charges, write_xyz_file, atom_to_link_atom,\
 read_xyz_file, read_qout_file, count_atoms_in_layers, adjust_HLA_coords, print_help,\
-write_oniom_inp_file, write_qm_input, charge_change, sum_p_charges,\
-extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition,\
+write_mm_inp_file, write_oniom_inp_file, write_qm_input, charge_change, sum_p_charges,\
+extract_at_atm_p_charges, extract_qm_system, extract_chemical_composition,write_mm_input,\
 vdw_radii, charge_summary, report_charges, nlayers_ONIOM,\
 read_single_string, read_single_number, read_pdb_file,\
 read_rsi_index, input_read_link_atoms, input_read_freeze,\
@@ -112,7 +112,7 @@ else:
     add_inp_fname = None
 
 LEGAL_SWITCHES = ["eag", "eqg", "ehmg", "rag", "rqg", "rqq", "z1", "z2", "z3",\
-		  "rc", "rcd", "cs", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc",\
+		  "rc", "rcd", "cs", "wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc",\
 		  "wqm_rcd", "wqm_cs", "omod"]
 
 ### if -h - write help and exit                                            ###
@@ -196,7 +196,6 @@ for lk_at in inp_link_atoms_list:
     bonded_to = lk_at.get_bonded_to()
     b2_layer = inp_atoms_list[bonded_to].get_oniom_layer()
     lk_at.set_oniom_layer(b2_layer)
-#    print(str(lk_at.get_oniom_layer()))
 
 
 ### ---------------------------------------------------------------------- ###
@@ -326,9 +325,29 @@ if switch == "rqq":
 if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
     print("#----------------------------------------------------------------------------------------------#")
     if switch == "wqm":
-        print("Writing QM Gaussian input file\n")
+        print("Writing QM Gaussian input file for the H-layer\n")
     else:
         print("Writing QM Gaussian for RESP input file with point charges within the model: ", switch[4:0], "\n")
+
+        n_at_in_oniom, n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer,\
+            n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(inp_atoms_list, inp_link_atoms_list)
+        nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)  
+
+        mod_atoms_list = deepcopy(inp_atoms_list)
+        mod_link_atoms_list = deepcopy(inp_link_atoms_list)
+        if (n_atom_in_M_layer > 0) and (nlayers == 3):
+            print("WARNING: 3-layer ONIOM system read, M-layer charges will be treated as L-layer charges\n")
+            nlayers = 2
+
+            for atm in mod_atoms_list:
+                atm_ix = atm.get_index()
+                if atm.get_oniom_layer() == 'M':
+                    atm.set_oniom_layer('L')
+                elif ( (atm.get_oniom_layer() == 'L') and atm.get_LAH() ):
+                    for lk in mod_link_atoms_list.copy():
+                        if lk.get_index() == atm_ix:
+                            mod_link_atoms_list.remove(lk)
+
     read_radii = False # if additional radii info will be placed in the Gaussian input file
     off_atm_p_q = []
     at_atm_p_q = [] 
@@ -337,18 +356,17 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
     print("\nTotal charges read from the input file:")
     report_charges(sum_charges_initial)
     if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
-        mod_atoms_list = deepcopy(inp_atoms_list)
         q_model = switch[4:]
-        off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, q_model)
+        off_atm_p_q = charge_change(mod_atoms_list, mod_link_atoms_list, inp_connect, q_model)
         at_atm_p_q = extract_at_atm_p_charges(mod_atoms_list, layer="L")
-        qm_system_atoms = extract_qm_system(mod_atoms_list, inp_link_atoms_list, layer="H")
+        qm_system_atoms = extract_qm_system(mod_atoms_list, mod_link_atoms_list, layer="H")
     elif switch == "wqm":
         qm_system_atoms = extract_qm_system(inp_atoms_list, inp_link_atoms_list, layer="H")
 
     all_point_charges = at_atm_p_q + off_atm_p_q
     
     if switch in ["wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:  
-        sum_charges_final = charge_summary(mod_atoms_list, inp_link_atoms_list, off_atm_p_q)
+        sum_charges_final = charge_summary(mod_atoms_list, mod_link_atoms_list, off_atm_p_q)
         print("\nTotal charges after charge modification:")
         report_charges(sum_charges_final)
 
@@ -393,8 +411,8 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
             out_file.write(read_radii_lines)
         else:
             write_qm_input(out_file, resp_header, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+
         gesp_f_name = output_fname + ".gesp\n"
-        out_file.write("\n")
         out_file.write(gesp_f_name)
         out_file.write("\n")
         out_file.write(gesp_f_name)
@@ -411,12 +429,7 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
 if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
     print("#---------------------------------------------------------------------------------#")
     print("Writing 2-layer ONIOM=ElectronicEmbeding input file with charge QM-MM model: ", switch, "\n")
-#    inp_header -> mod_header
-#        z1 Oniom(...)=ScaleCharge=555555
-#        z2 Oniom(...)=ScaleCharge=555550
-#        z3 Oniom(...)=ScaleCharge=555500
-#        cs/rc/rcd Oniom(...)=ScaleCharge=555555 charge
-# UWAGA: dla z1, z2 i z3 wystarczy odp ScaleCharge, nie zerować ładunków tutaj (przy QM input trzeba) !!!
+
     find = re.search(r'[Oo][Nn][Ii][Oo][Mm]\((.+)\)', inp_header)
     if find:
         old_o_command = find.group(0)       
@@ -456,26 +469,106 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
         n_link_atoms_for_H, n_link_atoms_for_M = count_atoms_in_layers(inp_atoms_list, inp_link_atoms_list)
     nlayers = nlayers_ONIOM(n_atom_in_H_layer, n_atom_in_M_layer, n_atom_in_L_layer)  
 
+    mod_atoms_list = deepcopy(inp_atoms_list)
+    mod_link_atoms_list = deepcopy(inp_link_atoms_list)
     if (n_atom_in_M_layer > 0) and (nlayers == 3):
         print("WARNING: 3-layer ONIOM system read, 2-layer (H/L) ONIOM system will be written\n")
+        nlayers = 2
+# zmodyfikować o_command - usunąć wpis o medium metodzie obliczeniowej
+        for atm in mod_atoms_list:
+            atm_ix = atm.get_index()
+            if atm.get_oniom_layer() == 'M':
+                atm.set_oniom_layer('L')
+            elif ( (atm.get_oniom_layer() == 'L') and atm.get_LAH() ):
+                for lk in mod_link_atoms_list.copy():
+                    if lk.get_index() == atm_ix:
+                        mod_link_atoms_list.remove(lk)
         
     comment = "QM/MM charge model: " + switch + "\n"
     off_atm_p_q = []
-    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, [])
+    sum_charges_initial = charge_summary(inp_atoms_list, inp_link_atoms_list, inp_p_charges)
     print("\nTotal charges read from the input file:")
     report_charges(sum_charges_initial)
 
-    mod_atoms_list = deepcopy(inp_atoms_list)
-    off_atm_p_q = charge_change(mod_atoms_list, inp_link_atoms_list, inp_connect, switch)
-  
-    sum_charges_final = charge_summary(mod_atoms_list, inp_link_atoms_list, off_atm_p_q)
-    print("\nTotal charges after charge modification:")
+    mod_Q_atoms_list = deepcopy(mod_atoms_list)
+    off_atm_p_q = charge_change(mod_Q_atoms_list, mod_link_atoms_list, inp_connect, switch)
+    if len(inp_p_charges) > 0:
+        print("\nWARNING: point charges read from the input file will be retained and added to off-atom\
+              point charges")
+        off_atm_p_q += inp_p_charges
+    
+    sum_charges_final = charge_summary(mod_Q_atoms_list, mod_link_atoms_list, off_atm_p_q)
+    print("\nTotal charges after charge modification or in ONIOM=ScaleCharge calculations (z1, z2 or z3):")
     report_charges(sum_charges_final)
 
+    at_atm_p_q = extract_at_atm_p_charges(mod_Q_atoms_list, layer="L")
+    all_point_charges = at_atm_p_q + off_atm_p_q
+
     out_file = open(output_fname, 'a')
-    write_oniom_inp_file(out_file, mod_header, comment, inp_charge_and_spin, nlayers,\
-                         mod_atoms_list, inp_link_atoms_list, inp_connect,\
+    if switch in ["z1", "z2", "z3" ]:
+        print("\nIn the written file atom partial charges are not modified, only the ScaleCharge option")
+        write_oniom_inp_file(out_file, mod_header, comment, inp_charge_and_spin, nlayers,\
+                         mod_atoms_list, mod_link_atoms_list, inp_connect,\
                          inp_redundant, inp_params, off_atm_p_q)
+
+    elif switch in ["rc", "rcd", "cs" ]:
+        # set connectivity to atoms based on connectivity list read from the ONIOM input
+        for at in mod_Q_atoms_list:
+            at_ix = at.get_index()
+            connect = inp_connect[at_ix]
+            at.set_connect_list(connect)
+            
+        qm_system_atoms = extract_qm_system(mod_Q_atoms_list, mod_link_atoms_list, layer="H")
+        
+        if inp_redundant:
+            print("\nWARNING: redundant section read from the input file is dropped")
+        out_redundant = None 
+        
+        mm_real_comment = 'MM calculations for the real system\n'
+        qm_model_comment = 'QM calculations for the model system\n'
+        mm_model_comment = 'MM calculations for the model system\n'
+        
+        find = re.search(r'[Oo][Nn][Ii][Oo][Mm]\(([0-9A-Za-z/:=]+)([ ]*\))', inp_header)
+        if find:
+            qm_method = find.group(1).split(':')[0]
+            mm_method = find.group(1).split(':')[-1]
+        else:
+            qm_method = 'None'
+            mm_method = 'None'
+            print("\nWARNING: qm and mm methods not found, you must modify the output yourself")
+
+        qm_header = inp_header.replace(find.group(0), qm_method)
+        mm_header = inp_header.replace(find.group(0), mm_method)
+
+        find = re.search(r'[Oo][Pp][Tt](([0-9A-Za-z,=\(\)]+)([ ]*))', inp_header)
+        if find:
+            qm_header = qm_header.replace(find.group(0), '')
+            mm_header = mm_header.replace(find.group(0), '')
+
+        find = re.search(r'[Ss][Cc][Ff][=]\(([0-9A-Za-z,=]+)([ ]*\))', mm_header)
+        if find:
+            mm_header = mm_header.replace(find.group(0), '')
+            
+        find = re.search(r'[Cc][Hh][Aa][Rr][Gg][Ee]', inp_header)
+        if not find:
+            qm_header = qm_header + ' charge'
+            mm_model_header = mm_header + ' charge'
+        
+        qm_header = qm_header.replace('\n', ' ')
+        mm_header = mm_header.replace('\n', ' ')
+        mm_model_header = mm_model_header.replace('\n', ' ')
+        
+        qm_header += '\n'
+        mm_header += '\n'
+        mm_model_header += '\n'
+        
+        write_mm_inp_file(out_file, mm_header, mm_real_comment, inp_charge_and_spin, mod_atoms_list,\
+                          inp_connect, out_redundant, inp_params, inp_p_charges)
+        out_file.write("--Link1--\n")
+        write_qm_input(out_file, qm_header, qm_model_comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
+        out_file.write("--Link1--\n")
+        write_mm_input(out_file, mm_model_header, mm_model_comment, inp_charge_and_spin, qm_system_atoms, all_point_charges, inp_params)
+
     out_file.close()
 
 
@@ -624,7 +717,6 @@ if switch == "omod":
     for at in link_atoms_list:
         lk_at_indexes.append(at.get_index())
         
-#    link_atoms_list.sort(key=lambda x: x.get_index(), reverse=True)
     link_atoms_list.sort(key=lambda x: x.get_index(), reverse=False)
     lk_at_indexes.sort()    
 
@@ -674,7 +766,6 @@ if switch == "omod":
     
     # sort link_atoms if this list was expanded:
     if link_atoms_updated:
-#        link_atoms_list.sort(key=lambda x: x.get_index(), reverse=True)
         link_atoms_list.sort(key=lambda x: x.get_index(), reverse=False)
         lk_at_indexes.sort()
 
