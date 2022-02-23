@@ -30,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 17 Feb 2022
+last update: 23 Feb 2022
 """
 import sys, os, re
 from copy import deepcopy
@@ -322,6 +322,7 @@ if switch == "rqq":
 
 ### ---------------------------------------------------------------------- ###
 ### CASE: write QM-only Gaussian input                                     ###
+# to implement: generating resp_1.in, resp_2.in and a bash script to run resp fitting
 if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs" ]:
     print("#----------------------------------------------------------------------------------------------#")
     if switch == "wqm":
@@ -474,7 +475,12 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
     if (n_atom_in_M_layer > 0) and (nlayers == 3):
         print("WARNING: 3-layer ONIOM system read, 2-layer (H/L) ONIOM system will be written\n")
         nlayers = 2
-# zmodyfikować o_command - usunąć wpis o medium metodzie obliczeniowej
+        # modifying header - removing the medium ONIOM method 
+        find = re.search(r'[Oo][Nn][Ii][Oo][Mm]\(([0-9A-Za-z/:=]+)([ ]*\))', mod_header)
+        methods_list = find.group(1).split(':')
+        qm_mm_methods = methods_list[0] + ":" + methods_list[2]
+        mod_header = mod_header.replace(find.group(1), qm_mm_methods)
+        # M -> L layer projection
         for atm in mod_atoms_list:
             atm_ix = atm.get_index()
             if atm.get_oniom_layer() == 'M':
@@ -554,13 +560,23 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
             qm_header = qm_header + ' charge'
             mm_model_header = mm_header + ' charge'
         
-        qm_header = qm_header.replace('\n', ' ')
-        mm_header = mm_header.replace('\n', ' ')
-        mm_model_header = mm_model_header.replace('\n', ' ')
         
-        qm_header += '\n'
-        mm_header += '\n'
-        mm_model_header += '\n'
+        def clean_header(header):
+            head_p1 = ''
+            head_p2 = ''
+            header_split = header.split('#')
+            head_p1 = header_split[0]
+            for item in header_split[1:]:
+                item = item.replace('\n', ' ')
+                head_p2 = head_p2 + item
+            head_p2 = '# ' + head_p2
+            head_p2 = ' '.join(head_p2.split())
+            new_header = head_p1 + head_p2 + "\n"
+            return new_header
+        
+        qm_header = clean_header(qm_header)
+        mm_header = clean_header(mm_header)
+        mm_model_header = clean_header(mm_model_header)
         
         write_mm_inp_file(out_file, mm_header, mm_real_comment, inp_charge_and_spin, mod_atoms_list,\
                           inp_connect, out_redundant, inp_params, inp_p_charges)

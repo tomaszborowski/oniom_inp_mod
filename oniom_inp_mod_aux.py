@@ -1,12 +1,11 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 17 Feb 2022
+last update: 23 Feb 2022
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
 from copy import deepcopy
-#from typing import Tuple, List
 
 # CONSTANTS
 letters = string.ascii_uppercase
@@ -23,6 +22,9 @@ vdw_radii = {\
 #### Class section ####
 #######################
 class point_charge:
+    
+    __slots__ = ["charge", "coords"]
+    
     def __init__(self, charge, coords):
         self.charge = charge # float
         self.coords = coords # a list of 3 numbers
@@ -38,11 +40,27 @@ class point_charge:
         return self.charge
     
     def get_string(self):
-        x = str( round(self.coords[0], 6) )
-        y = str( round(self.coords[1], 6) )
-        z = str( round(self.coords[2], 6) )
-        q = str( round(self.charge, 8) )
-        return  x + " " + y + " " + z + " " + q
+        x = '{:06.6f}'.format(self.coords[0])
+        y = '{:06.6f}'.format(self.coords[1])
+        z = '{:06.6f}'.format(self.coords[2])
+        q = '{:06.8f}'.format(self.charge)
+        if (self.coords[0] < 0.0):
+            s1 = ''
+        else:
+            s1 = ' '
+        if (self.coords[1] < 0.0):
+            s2 = '  '
+        else:
+            s2 = '   '
+        if (self.coords[2] < 0.0):
+            s3 = '  '
+        else:
+            s3 = '   '            
+        if (self.charge < 0.0):
+            s4 = '  '
+        else:
+            s4 = '   '
+        return  s1 + x + s2 + y + s3 + z + s4 + q
     
     def set_charge(self, q):
         self.charge = q
@@ -52,6 +70,11 @@ class point_charge:
 
 
 class atom:
+    
+    __slots__ = ["index", "element", "at_charge", "coords", "at_type", "frozen", "oniom_layer",
+                 "new_index", "new_at_type", "tree_chain_classification", "connect_list",
+                 "in_mainchain", "name", "LAH"]
+    
     def __init__(self, index, element, at_charge, coords, at_type=None, frozen=None, oniom_layer='L'):
         self.coords = coords
         self.index = index # 0-based (to be consistent with vmd and python indexing)
@@ -152,6 +175,11 @@ class atom:
 
 
 class link_atom(atom):
+    
+    __slots__ = ["index", "element", "at_charge", "coords", "at_type", "frozen", "oniom_layer",
+                 "new_index", "new_at_type", "tree_chain_classification", "connect_list",
+                 "in_mainchain", "name", "LAH", "bonded_to", "H_coords", "mm_element"]    
+    
     def __init__(self, coords, index, element,
                  at_type='', at_charge=0.0, bonded_to=None):
         atom.__init__(self, index, element, at_charge, coords, at_type=None, frozen=None, oniom_layer='L')
@@ -196,6 +224,10 @@ class link_atom(atom):
 
 
 class residue:
+    
+    __slots__ = ["label", "index", "new_index", "in_protein", "atoms", "main_chain_atoms",
+                 "trim", "chain"]
+    
     def __init__(self, label, index):
         self.label = label
         self.index = index # zero based - to be consistent with vmd and python
@@ -248,6 +280,9 @@ class residue:
 
         
 class peptide:
+    
+    __slots__ = ["label", "index", "is_peptide", "residues"]
+    
     def __init__(self, label, index):
         self.label = label
         self.index = index  # 0-based     
@@ -1212,8 +1247,8 @@ def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
 
     """
     connect = gen_connect(atom_list)
-    
-    file.write(header)
+    new_header = add_old_chk(header)
+    file.write(new_header)
     file.write('\n')
     file.write(comment)
     file.write('\n')
@@ -1265,8 +1300,8 @@ def write_mm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
 
     """
     connect = gen_connect(atom_list)
-    
-    file.write(header)
+    new_header = add_old_chk(header)
+    file.write(new_header)    
     file.write('\n')
     file.write(comment)
     file.write('\n')
@@ -1346,6 +1381,19 @@ def write_connect(file, connect) -> None:
         value = [i for i in value if i > key]  # remove information not needed in Gaussian connectivity list
         file.write(" " + str(key+1) + " " + " ".join(str(item+1) + " 1.0" for item in value) + ' \n')
 
+
+def add_old_chk(header):
+    chk_read = read_Chk(header)
+    
+    old_chk_line = '%oldChk={}{}'.format(chk_read[0], chk_read[1])
+    new_header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(chk_read[0], '_new', chk_read[1]),
+                    header)
+    if len(chk_read[0]) == 0:
+        return header
+    else:
+        new_header = old_chk_line + new_header
+        return new_header
+
         
 def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
                          atoms_list, link_atoms_list, connect, redundant=None, params=None, p_charges=None):
@@ -1381,13 +1429,7 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
     None.
 
     """
-    chk_read = read_Chk(header)
-    
-    old_chk_line = '%oldChk={}{}'.format(chk_read[0], chk_read[1])
-    new_header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(chk_read[0], '_new', chk_read[1]),
-                    header)
-
-    file.write(old_chk_line)
+    new_header = add_old_chk(header)
     file.write(new_header)
     file.write("\n")
     file.write(comment)
@@ -1449,15 +1491,8 @@ def write_mm_inp_file(file, header, comment, charge_and_spin,\
     None.
 
     """
-    # chk_read = read_Chk(header)
-    
-    # old_chk_line = '%oldChk={}{}'.format(chk_read[0], chk_read[1])
-    # new_header = re.sub(r'%[Cc][Hh][Kk]=(.+)(\.[Cc][Hh][Kk]\s)', '%Chk={}{}{}'.format(chk_read[0], '_new', chk_read[1]),
-    #                 header)
-
-    # file.write(old_chk_line)
-    # file.write(new_header)
-    file.write(header)
+    new_header = add_old_chk(header)
+    file.write(new_header)
     file.write("\n")
     file.write(comment)
     file.write("\n")
