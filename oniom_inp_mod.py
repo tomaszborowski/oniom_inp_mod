@@ -49,49 +49,6 @@ lk_atoms_mod, generate_label, peptide, N_CO_in_residue, is_peptide_bond2
 
 
 ### ---------------------------------------------------------------------- ###
-### test cases                                                             ###
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-# output_fname = 'input_examples/test_out'
-# add_inp_fname = 'input_examples/h6h-oxo+succinate+water_hyo_17_07_b_moved.xyz'
-# switch = 'rag'
-
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-# output_fname = 'input_examples/test_out'
-# add_inp_fname = 'input_examples/H_layer_mod.xyz'
-# switch = 'rqg'
-
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-# output_fname = 'input_examples/test_out'
-# add_inp_fname = 'input_examples/fake.qout'
-# switch = 'rqq'
-
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-# output_fname = 'input_examples/test_out'
-# switch = 'wqm_z1'
-
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_17_07_b2.com"
-# output_fname = 'input_examples/test_out'
-# switch = 'cs'
-
-# resp_qout_file_to_read = 'input_examples/h6h-oxo+succinate+water_hyo_rep3_copy3_clust3-resp2.qout'
-# whole_system_xyz_file_to_read = 'input_examples/h6h-oxo+succinate+water_hyo_17_07_b_moved.xyz'
-# qm_system_xyz_file_to_read = ''
-
-# oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
-# output_fname = 'input_examples/test_out'
-# add_inp_fname = 'input_examples/omod.inp'
-# switch = 'omod'
-
-#oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo.com"
-#oniom_inp = "input_examples/h6h-oxo+succinate+water_hyo_fake_pq.com"
-#output_fname = 'input_examples/test_out'
-#add_inp_fname = 'input_examples/omod_no_freeze.inp'
-#add_inp_fname = 'input_examples/omod_nf_no_lk.inp'
-#switch = 'omod'
-
-#oniom_inp = "-h"
-
-### ---------------------------------------------------------------------- ###
 ### Seting the file names                                                  ###
 sys_argv_len = len(sys.argv)
 if sys_argv_len > 1:
