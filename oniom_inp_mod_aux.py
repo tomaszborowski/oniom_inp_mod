@@ -1,7 +1,7 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 23 Feb 2022
+last update: 21 May 2024
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
@@ -1246,9 +1246,10 @@ def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
     None.
 
     """
-    connect = gen_connect(atom_list)
-    new_header = add_old_chk(header)
-    file.write(new_header)
+#    connect = gen_connect(atom_list)
+#    new_header = add_old_chk(header)
+#    file.write(new_header)
+    file.write(header)
     file.write('\n')
     file.write(comment)
     file.write('\n')
@@ -1263,8 +1264,8 @@ def write_qm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
         line = make_xyz_line(element, coords)
         file.write(line)
         
-    file.write('\n')
-    write_connect(file, connect)
+#    file.write('\n')
+#    write_connect(file, connect)
     
     if len(point_charge_list) > 0:
         for p_q in point_charge_list:

@@ -30,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 23 Feb 2022
+last update: 21 May 2024
 """
 import sys, os, re
 from copy import deepcopy
@@ -327,20 +327,21 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
         sum_charges_final = charge_summary(mod_atoms_list, mod_link_atoms_list, off_atm_p_q)
         print("\nTotal charges after charge modification:")
         report_charges(sum_charges_final)
-
-    resp_header_read_radii =  "%chk=name.chk\n" +\
+    
+    chk_name = output_fname[0:-3] + "chk\n"
+    resp_header_read_radii =  "%Chk=" + chk_name +\
                     "%Nproc=24\n" +\
                     "%Mem=24GB\n" +\
                     "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) charge\n" +\
                     "nosymm Pop=(MK,ReadRadii) iop(6/33=2) iop(6/42=6) iop(6/50=1)\n"
 
-    resp_header =  "%chk=name.chk\n" +\
+    resp_header =  "%Chk=" + chk_name +\
                     "%Nproc=24\n" +\
                     "%Mem=24GB\n" +\
                     "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) charge\n" +\
                     "nosymm Pop=(MK) iop(6/33=2) iop(6/42=6) iop(6/50=1)\n"
 
-    qm_header =     "%chk=name.chk\n" +\
+    qm_header =     "%Chk=" + chk_name +\
                     "%Nproc=24\n" +\
                     "%Mem=24GB\n" +\
                     "# UB3LYP/def2SVP 5d scf=(xqc,maxcycle=350) nosymm\n"
@@ -359,6 +360,7 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
                 read_radii = True
                 line = str(key) + "   " + str(vdw_radii[key]) + "\n"
                 read_radii_lines += line               
+    read_radii_lines += "\n"
     
     out_file = open(output_fname, 'a')
     
@@ -370,7 +372,7 @@ if switch in ["wqm", "wqm_z1", "wqm_z2", "wqm_z3", "wqm_rc", "wqm_rcd", "wqm_cs"
         else:
             write_qm_input(out_file, resp_header, comment, inp_charge_and_spin, qm_system_atoms, all_point_charges)
 
-        gesp_f_name = output_fname + ".gesp\n"
+        gesp_f_name = output_fname[0:-3] + "gesp\n"
         out_file.write(gesp_f_name)
         out_file.write("\n")
         out_file.write(gesp_f_name)
