@@ -1,7 +1,7 @@
 """"
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
 
-last update: 21 May 2024
+last update: 11 June 2024
 """
 import re, math, scipy, string, scipy.spatial
 import numpy as np
@@ -73,7 +73,7 @@ class atom:
     
     __slots__ = ["index", "element", "at_charge", "coords", "at_type", "frozen", "oniom_layer",
                  "new_index", "new_at_type", "tree_chain_classification", "connect_list",
-                 "in_mainchain", "name", "LAH"]
+                 "in_mainchain", "name", "LAH", "PDB_info"]
     
     def __init__(self, index, element, at_charge, coords, at_type=None, frozen=None, oniom_layer='L'):
         self.coords = coords
@@ -90,6 +90,7 @@ class atom:
         self.frozen = frozen  # 0 - not frozen, -1 - frozen
         self.name = None  #
         self.LAH = False  # True if this atom is a Link Atom Host (LAH)
+        self.PDB_info = None  # PDB info about atom read from Gaussian input file (string)
 
     def __str__(self):
         return str(self.index) + " " + str(self.element) + " " + str(self.at_type) + " " + str(self.at_charge) + " " \
@@ -137,6 +138,9 @@ class atom:
     def get_LAH(self):
         return self.LAH
 
+    def get_PDB_info(self):
+        return self.PDB_info
+
     def set_coords(self, coords):
         self.coords = coords
 
@@ -173,6 +177,8 @@ class atom:
     def set_LAH(self, LAH):
         self.LAH = LAH
 
+    def set_PDB_info(self, pdb_info):
+        self.PDB_info = pdb_info
 
 class link_atom(atom):
     
@@ -326,7 +332,9 @@ def find_in_file(file):
            "header": 0,
            "parm": -1,
            "redundant": -1,
-           "p_charges": -1
+           "p_charges": -1,
+           "gen_basis": -1,
+           "gen_ecp": -1
            }   
     
     empty_line = 0  # count empty line
@@ -358,16 +366,39 @@ def find_in_file(file):
         elif empty_line == 9 and is_redundant_exists:
             offsets["parm"] = previousLine
             empty_line += 1
+        # elif empty_line == 9:
+        #     if re.match(r'^[0-9]+', line):
+        #         offsets["p_charges"] = previousLine
+        #     empty_line += 1
+        # elif empty_line == 11 and is_redundant_exists:
+        #     if re.match(r'^[0-9]+', line):
+        #         offsets["p_charges"] = previousLine
+        #     empty_line += 1
+# UWAGA: to poniżej nie złapie wszystkich kombinacji w inpucie, trzebaby
+# przepisać na inteligentniejsze skanowanie zawartości inputu
         elif empty_line == 9:
             if re.match(r'^[0-9]+', line):
                 offsets["p_charges"] = previousLine
+            elif re.match(r'^[a-zA-Z]+', line):
+                offsets["gen_basis"] = previousLine
             empty_line += 1
         elif empty_line == 11 and is_redundant_exists:
             if re.match(r'^[0-9]+', line):
                 offsets["p_charges"] = previousLine
+            elif re.match(r'^[a-zA-Z]+', line):
+                offsets["gen_basis"] = previousLine    
             empty_line += 1
-
-        if line == '\n':
+        elif empty_line == 11:
+            if re.match(r'^[a-zA-Z]+', line):
+                offsets["gen_ecp"] = previousLine 
+            empty_line += 1
+        elif empty_line == 13 and is_redundant_exists:
+            if re.match(r'^[a-zA-Z]+', line):
+                offsets["gen_ecp"] = previousLine 
+            empty_line += 1
+            
+        #if line == '\n':
+        if line.replace(" ", "") == '\n':
             empty_line += 1
 
     file.seek(0)
@@ -490,7 +521,12 @@ def read_atom_inf(file, offset) -> tuple:
 
             element = line[0]
             at_type = line[1]
-            at_charge = float(line[2])
+            #at_charge = float(line[2])
+            f_charge = filter_charge(line[2])
+            at_charge = f_charge[0]
+            pdb_info = None
+            if len(f_charge) > 1:
+                pdb_info = f_charge[1]
             if line[3] is None:
                 frozen = line[3]
             else:
@@ -502,11 +538,23 @@ def read_atom_inf(file, offset) -> tuple:
 
             atomObject = atom(index=at_index, element=element, at_type=at_type, at_charge=at_charge,
                               frozen=frozen, coords=coords, oniom_layer=onion_layer)
-
+            if pdb_info:
+                atomObject.set_PDB_info(pdb_info)
             if len(line) > 8:  # atom has link section
                 atomObject.set_LAH(True)
                 oniom_layer_H_and_LAH_index_list.append(at_index)
-                link = link_atom(index=at_index, element=line[-4], at_type=line[-3], at_charge=float(line[-2]),
+                if line[-3][-1] == 'e' or line[-3][-1] == 'E':
+                    charge_s = line[-3] + '-' + line[-2]
+                    charge = float(charge_s)
+                    atype = line[-4]
+                    elem = line[-5]
+                else:
+                    charge = float(line[-2])
+                    atype = line[-3]
+                    elem = line[-4]
+                #link = link_atom(index=at_index, element=line[-4], at_type=line[-3], at_charge=float(line[-2]),
+                #                 coords=coords)
+                link = link_atom(index=at_index, element=elem, at_type=atype, at_charge=charge,
                                  coords=coords)
                 bonded_to = int(line[-1]) - 1 # read value is 1-based, internal values are 0-based
                 link.set_bonded_to(bonded_to)
@@ -605,6 +653,33 @@ def filter_line(line: str) -> list:
     line = filterPattern.split(line)
     line.remove('')
     return line
+
+
+def filter_charge(charge_frag: str) -> list:
+    """
+    get charge and optional PDB info from the string read from the input\n
+    example:\n
+    charge_frag = -0.011906(PDBName=CD,ResName=PRO,ResNum=426)
+    charge_frag = -0.011906
+    after execution this function returs:\n
+    charge_list = [-0.011906, '(PDBName=CD,ResName=PRO,ResNum=426)']
+    charge_list = [-0.011906]
+    Parameters
+    ----------
+    charge_frag : str
+        fragment of atom line containing info on atomic charge
+
+    Returns
+    -------
+    list
+        charge_list[0] - float, atomic charge
+        optional charge_list[1] - string, PDB info
+    """
+    charge_list = charge_frag.split( '(' )
+    charge_list[0] = eval(charge_list[0])
+    if len(charge_list) > 1:
+        charge_list[1] = '(' + charge_list[1]
+    return charge_list
 
 
 def check_if_line_correct(line: str) -> bool:
@@ -1315,8 +1390,16 @@ def write_mm_input(file, header, comment, chargeSpin, atom_list, point_charge_li
         element = atom.get_element()
         at_type = atom.get_type()
         at_charge = atom.get_at_charge()
+        at_charge_str = str(round(at_charge, 6))
+        at_pdb_info = atom.get_PDB_info()
+        if at_pdb_info:
+            at_charge_str += at_pdb_info
         coords = atom.get_coords()
-        line = element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + '\t\t' + \
+        # line = element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + '\t\t' + \
+        #                   '{:06.6f}'.format(coords[0]) + '     ' + \
+        #                   '{:06.6f}'.format(coords[1]) + '     ' + \
+        #                   '{:06.6f}'.format(coords[2]) + '\n'
+        line = element + '-' + at_type + '-' + at_charge_str + '\t' + '\t\t' + \
                           '{:06.6f}'.format(coords[0]) + '     ' + \
                           '{:06.6f}'.format(coords[1]) + '     ' + \
                           '{:06.6f}'.format(coords[2]) + '\n'
@@ -1349,15 +1432,23 @@ def write_oniom_atom_section(file, atom_list, link_atom_list):
         element = atom.get_element()
         at_type = atom.get_type()
         at_charge = atom.get_at_charge()
+        at_charge_str = str(round(at_charge, 6))
+        at_pdb_info = atom.get_PDB_info()
+        if at_pdb_info:
+            at_charge_str += at_pdb_info        
         frozen = atom.get_frozen()
         if frozen is None:
             frozen = ''
         coords = atom.get_coords()
         oniom_layer = atom.get_oniom_layer()
-        file.write(element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
+        # file.write(element + '-' + at_type + '-' + str(round(at_charge, 6)) + '\t' + str(frozen) + '\t\t' + \
+        #                   '{:06.6f}'.format(coords[0]) + '     ' + \
+        #                   '{:06.6f}'.format(coords[1]) + '     ' + \
+        #                   '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)
+        file.write(element + '-' + at_type + '-' + at_charge_str + '\t' + str(frozen) + '\t\t' + \
                           '{:06.6f}'.format(coords[0]) + '     ' + \
                           '{:06.6f}'.format(coords[1]) + '     ' + \
-                          '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)
+                          '{:06.6f}'.format(coords[2]) + '\t' + oniom_layer)            
         if atom.get_LAH:
             for link in link_atom_list:
                 if link.get_index() == atom.get_index():
@@ -1397,7 +1488,8 @@ def add_old_chk(header):
 
         
 def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
-                         atoms_list, link_atoms_list, connect, redundant=None, params=None, p_charges=None):
+                         atoms_list, link_atoms_list, connect, redundant=None,\
+                         params=None, p_charges=None, gen_basis=None, gen_ecp=None):
     """
     writes ONIOM input file
 
@@ -1425,6 +1517,10 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         section with FF parameters. The default is None.
     p_charges : LIST, optional
         a list of off-atom point charges (objects). The default is None.
+    gen_basis : STRING, optional. 
+        general basis set section. The default is None.
+    gen_ecp : STRING, optional.
+        general ECP section. The default is None.
     Returns
     -------
     None.
@@ -1459,7 +1555,81 @@ def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
         for p_q in p_charges:
             file.write('\n{}'.format( p_q.get_string() ) )
     
+    if gen_basis:
+        file.write("\n")
+        file.write(gen_basis)
+        
+    if gen_ecp:
+        file.write("\n")
+        file.write(gen_ecp)        
+    
     file.write("\n\n\n")     
+
+
+# def write_oniom_inp_file(file, header, comment, charge_and_spin, nlayers,\
+#                          atoms_list, link_atoms_list, connect, redundant=None, params=None, p_charges=None):
+#     """
+#     writes ONIOM input file
+
+#     Parameters
+#     ----------
+#     file : file object
+#         file to which ONIOM input will be written.
+#     header : STRING
+#         contains the header section of the input file.
+#     comment : STRING
+#         comment line(s) in the Gaussian input.
+#     charge_and_spin : DICTIONARY
+#         Dictionary with charge and multiplicity info.
+#     nlayers : INT
+#         number of layers: 2 or 3.
+#     atoms_list : LIST
+#         list of atom objects.
+#     link_atoms_list : LIST
+#         list of link atom objects.
+#     connect : DICTIONARY
+#         dictionary with atoms connectivity information.
+#     redundant : STRING, optional
+#         redundant coordinate section (which may follow connectivity). The default is None.
+#     params : STRING, optional
+#         section with FF parameters. The default is None.
+#     p_charges : LIST, optional
+#         a list of off-atom point charges (objects). The default is None.
+#     Returns
+#     -------
+#     None.
+
+#     """
+#     new_header = add_old_chk(header)
+#     file.write(new_header)
+#     file.write("\n")
+#     file.write(comment)
+#     file.write("\n")
+
+# #    2-layers ONIOM
+# #    chrgreal-low  spinreal-low  chrgmodel-high  spinmodel-high  chrgmodel-low  spinmodel-low
+# #
+# #    3-layer ONIOM
+# #    cRealL  sRealL   cIntM   sIntM   cIntL  sIntL   cModH  sModH   cModM  sModM   cModL   sModL
+    
+#     charge_spin_line = write_charge_spin(charge_and_spin, nlayers)
+#     file.write(charge_spin_line + "\n")
+
+#     write_oniom_atom_section(file, atoms_list, link_atoms_list)
+#     file.write("\n")
+#     write_connect(file, connect)
+    
+#     if redundant:
+#         file.write('\n{}'.format(redundant))
+    
+#     if params:
+#         file.write('\n{}'.format(params))
+
+#     if p_charges:
+#         for p_q in p_charges:
+#             file.write('\n{}'.format( p_q.get_string() ) )
+    
+#     file.write("\n\n\n")
 
 
 def write_mm_inp_file(file, header, comment, charge_and_spin,\

@@ -30,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 21 May 2024
+last update: 11 June 2024
 """
 import sys, os, re
 from copy import deepcopy
@@ -143,6 +143,22 @@ if inp_offsets["p_charges"] > 0:
     print("Their total charge = ", str( round(inp_pq_sum, 8) ) )
 else:
     inp_p_charges = []
+
+gen_basis = None
+if inp_offsets["gen_basis"] > 0:
+    gen_basis = read_from_to_empty_line(oniom_inp_f, inp_offsets["gen_basis"])
+    print("Gen basis section found\n")
+else:
+    #print("Gen basis section not found\n")
+    pass
+    
+gen_ecp = None
+if inp_offsets["gen_ecp"] > 0:
+    gen_ecp = read_from_to_empty_line(oniom_inp_f, inp_offsets["gen_ecp"])
+    print("Gen ECP section found\n")
+else:
+    #print("Gen ECP section not found\n")
+    pass    
     
 oniom_inp_f.close()
 
@@ -217,7 +233,10 @@ if switch in ["rag", "rqg"]:
                 
     out_file = open(output_fname, 'a')
     write_oniom_inp_file(out_file, inp_header, inp_comment, inp_charge_and_spin, nlayers,\
-                         mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant, inp_params)    
+                         mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant,\
+                         inp_params, inp_p_charges, gen_basis, gen_ecp)
+    # write_oniom_inp_file(out_file, inp_header, inp_comment, inp_charge_and_spin, nlayers,\
+    #                      mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant, inp_params)    
     out_file.close()
 
 
@@ -273,7 +292,10 @@ if switch == "rqq":
 
     out_file = open(output_fname, 'a')
     write_oniom_inp_file(out_file, inp_header, inp_comment, inp_charge_and_spin, nlayers,\
-                         mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant, inp_params)    
+                         mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant,\
+                         inp_params, gen_basis, gen_ecp) 
+    # write_oniom_inp_file(out_file, inp_header, inp_comment, inp_charge_and_spin, nlayers,\
+    #                      mod_atoms_list, inp_link_atoms_list, inp_connect, inp_redundant, inp_params)    
     out_file.close()    
 
 
@@ -474,7 +496,10 @@ if switch in ["z1", "z2", "z3", "rc", "rcd", "cs" ]:
         print("\nIn the written file atom partial charges are not modified, only the ScaleCharge option")
         write_oniom_inp_file(out_file, mod_header, comment, inp_charge_and_spin, nlayers,\
                          mod_atoms_list, mod_link_atoms_list, inp_connect,\
-                         inp_redundant, inp_params, off_atm_p_q)
+                         inp_redundant, inp_params, off_atm_p_q, gen_basis, gen_ecp)
+        # write_oniom_inp_file(out_file, mod_header, comment, inp_charge_and_spin, nlayers,\
+        #                  mod_atoms_list, mod_link_atoms_list, inp_connect,\
+        #                  inp_redundant, inp_params, off_atm_p_q)
 
     elif switch in ["rc", "rcd", "cs" ]:
         # set connectivity to atoms based on connectivity list read from the ONIOM input
@@ -791,7 +816,10 @@ if switch == "omod":
     comment = inp_comment + "modifications read from: " + add_inp_fname + "\n"
     out_file = open(output_fname, 'a')
     write_oniom_inp_file(out_file, inp_header, comment, mod_charge_and_spin, nlayers,\
-                         mod_atoms_list, link_atoms_list, inp_connect, inp_redundant, inp_params, inp_p_charges)
+                         mod_atoms_list, link_atoms_list, inp_connect, inp_redundant,\
+                         inp_params, inp_p_charges, gen_basis, gen_ecp)
+    # write_oniom_inp_file(out_file, inp_header, comment, mod_charge_and_spin, nlayers,\
+    #                      mod_atoms_list, link_atoms_list, inp_connect, inp_redundant, inp_params, inp_p_charges)
 
     out_file.close()
 
