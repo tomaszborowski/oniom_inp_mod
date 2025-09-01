@@ -30,7 +30,7 @@ Meaning of the switches:
     omod - modify oniom partitioning (2 or 3-layered) and/or frozen/optimized zone
 
 authors: Jakub Baran, Paulina Miśkowiec, Tomasz Borowski
-last update: 11 June 2024
+last update: 1 September 2025
 """
 import sys, os, re
 from copy import deepcopy
@@ -638,6 +638,7 @@ if switch == "omod":
 # erase all info about ONIOM layers read from the ONIOM input file (all atoms -> 'L')
     for at in mod_atoms_list:
         at.set_oniom_layer('L')
+        at.set_LAH(False)
         at.set_new_index(at.get_index())
 
 # ascribe atom names from info read from the pdb file:
@@ -781,6 +782,18 @@ if switch == "omod":
         str_layers += 'H '        
     print("\nThe ONIOM system to be written has: ", nlayers, " layers: ", str_layers)
     
+#   translate info about link atoms from link atoms to atoms within residues
+
+    la_indexes = []
+    for lk_atom in link_atoms_list:
+        la_number = lk_atom.get_index()
+        la_indexes.append(la_number)
+        la_indexes_set = set(la_indexes)
+        
+    for res in residues:
+        for at in res.get_atoms():
+            if at.get_index() in la_indexes_set:
+                at.set_LAH(True)
     
 #   inform about charges in the to be written ONIOM file
     sum_charges = charge_summary(mod_atoms_list, link_atoms_list, inp_p_charges)
